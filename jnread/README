@@ -1,0 +1,19 @@
+Program reads from USB input and builds webpage
+Interpret lines that start with:
+ 	e: for electricity data
+ 	g: for gas data
+ 	i: for inside temperature data
+ 	o: for outside temperature data
+ 	p: for outside pressure data
+ 	w: for water data (not yet)
+
+Note: using Arduino IDE commands can be send to the SensorNode:
+	gtst,.		getstatus, list all the min/max values
+	emnl,<value>.	set electricity left sensor min value
+	emxl,<value>.	set electricity left sensor max value
+	emnr,<value>.	set electricity right sensor min value
+	emxr,<value>.	set electricity right sensor max value
+	gmin,<value>.	set gas sensor min value
+	gmax,<value>.	set gas sensor max value
+	wmin,<value>.	set water sensor min value
+	wmax,<value>.	set water sensor max value

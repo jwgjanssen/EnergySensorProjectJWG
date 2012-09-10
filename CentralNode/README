@@ -1,0 +1,28 @@
+CentralNode
+-----------
+Node connected to the computer via USB.
+Node address: 868 Mhz, net group 5, node 30.
+Local sensors: - outside temperature (DS18B20)
+               - barometric pressure (BMP085)
+Receives:      - electricity readings (from SensorNode)
+               - gas readings (from SensorNode)
+               - inside temperature (from GLCDNode)
+Sends:         - electricity actual usage (to GLCDNode)
+               - outside temperature (to GLCDNode)
+               - barometric pressure (to GLCDNode)
+               - all values to USB for webpage
+               - all values to cosm.com via Ethercard
+Other:         - 2x16 LCD display (to display electricity usage & outside temperature)
+	       - Uses an Ethercard to send readings to cosm.com
+	       - commands to get/set eeprom sensor settings of the SensorNode:
+			(NOTE: get/set is possible via the serial interface of the Arduino IDE)
+			gtst,.		get/display all the sensor min and max settings
+			emnl,<value>.	set minimum trigger of left electricity sensor to <value>
+			emxl,<value>.	set maximum trigger of left electricity sensor to <value>
+			emnr,<value>.	set minimum trigger of right electricity sensor to <value>
+			emxr,<value>.	set maximum trigger of right electricity sensor to <value>
+			gmin,<value>.	set minimum trigger of gas sensor to <value>
+			gmax,<value>.	set maximum trigger of gas sensor to <value>
+			wmin,<value>.	set minimum trigger of water sensor to <value> (Not used yet)
+			wmax,<value>.	set maximum trigger of water sensor to <value> (Not used yet)
+				accepted values for <value> = 1 -> 1023
