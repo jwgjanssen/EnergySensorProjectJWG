@@ -36,8 +36,12 @@
 // 31aug2012	Jos	Added description of eeprom commands
 // 08sep2012    Jos     Included the code for sending data to cosm.com via ethercard
 // 09sep2012    Jos     Included code for 8 second watchdog reset
+// 02oct2012    Jos     Added Inside temperature to local LCD (changed layout for this)
+// 28oct2012	Jos	Added sending gas data to cosm.com
+// 15feb2013    Jos     Added code to re-initialze the rf12 every one week to avoid hangup after a long time
 
-#define DEBUG 0
+#define DEBUG 0        // Set to 1 to activate debug code
+#define UNO 1          // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
 
 #include <JeeLib.h>
 #include <EtherCard.h>
@@ -51,13 +55,16 @@
 			    //   #define FEEDID "your-own-id"
 			    //   #define APIKEY "your-own-key"
 // Crash protection: Jeenode resets itself after x seconds of none activity (set in WDTO_xS)
-const int UNO = 1;    // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
+#if UNO
 #include <avr/wdt.h>  // All Jeenodes have the UNO bootloader
-ISR(WDT_vect) { Sleepy::watchdogEvent(); }
+ISR(WDT_vect) { 
+  Sleepy::watchdogEvent(); 
+}
+#endif
 
 // **** Ethercard (does not use a JeeNode Port)
 // ethernet interface mac address, must be unique on the LAN
-static byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x31 };
+static byte mymac[] = { 0x58,0x17,0xAD,0x32,0x0A,0x00 };
 byte Ethernet::buffer[400]; // 400 works! 650 & 700 give strange effects (serial does not seem to work....)
 uint32_t timer;
 Stash stash;
@@ -80,6 +87,7 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
 
+Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
 Metro sendMetro = Metro(30500);
 Metro sampleMetro = Metro(60500);
 Metro cosmMetro = Metro(60000);
@@ -101,13 +109,17 @@ struct {
   char box_data[12];
 } glcd_send;
        
-long watt = 0;
+int watt = 0;
+int gas = 0;
 int itemp = 0;
 int otemp = 0;
 int opres = 0;
 
+
 // vars for reporting to cosm
 int watt_set = 0;
+int gas_set = 1;	// Always report gas to show when no gas is used
+int gas_send = 0;	// Is gas send to cosm ?
 int itemp_set = 0;
 int otemp_set = 0;
 int opres_set = 0;
@@ -186,13 +198,20 @@ void handleInput () {
         }
     }
 }
-  
+
+
+void init_rf12 () {
+    rf12_initialize(30, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 30
+    rf12_easyInit(0); // Send interval = 0 sec (=immediate).
+}
+
 
 void setup () {
     Serial.begin(57600);
     Serial.println("\n[START recv]");
-    rf12_initialize(30, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 30
-    rf12_easyInit(0);       // Send interval = 0 sec (=immediate).
+    init_rf12();
+    //rf12_initialize(30, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 30
+    //rf12_easyInit(0);       // Send interval = 0 sec (=immediate).
     if (ether.begin(sizeof Ethernet::buffer, mymac) == 0) {
         Serial.println("Failed to access Ethernet controller");
         while (1);
@@ -221,10 +240,16 @@ void setup () {
     // INIT port 4
     sensors.begin();        // DS18B20 default precision 12 bit.
     
-    if (UNO) wdt_enable(WDTO_8S);  // set timeout to 8 seconds
+    #if UNO
+      wdt_enable(WDTO_8S);  // set timeout to 8 seconds
+    #endif
 }
 
 void loop () {
+    // re-initialize rf12 every week to avoid rf12 hangup after a long time
+    if ( rf12ResetMetro.check() ) {
+         init_rf12();
+    }
     ether.packetLoop(ether.packetReceive());
 
     if (rf12_recvDone() && rf12_crc == 0 && rf12_len == sizeof (payload)) {
@@ -235,7 +260,7 @@ void loop () {
                 {
                   Serial.print("e ");
                   Serial.print(data->actual);
-                  watt = data->actual;
+                  watt = (int)data->actual;
 		  watt_set = 1;
                   Serial.print(" ");
                   Serial.print(data->rotations);
@@ -257,6 +282,14 @@ void loop () {
                 {
                   Serial.print("g ");
                   Serial.print(data->actual);
+		  if ( gas_send == 1 ) {
+                    gas_send = 0;
+                    //Serial.print("(1)");
+		    gas = 10;       // Start with 10L on first received g-line after sending
+                  } else {
+		    gas = gas + 10; // Every g-line received from sensornode means 10L gas used
+                    //Serial.print("(0)");
+                  }
                   Serial.print(" ");
                   Serial.print(data->rotations);
                   Serial.print("  measured min-max: ");
@@ -326,7 +359,7 @@ void loop () {
     
     // Send data for displaying on GLCD JeeNode & display selected data on local LCD
     if ( sendMetro.check() ) {
-        lcd.clear();
+        //lcd.clear();
         
         glcd_send.box=0;
         sprintf(glcd_send.box_title, "Verbruik ");
@@ -343,8 +376,13 @@ void loop () {
         sprintf(glcd_send.box_title, "Binnen ");
         sprintf(glcd_send.box_data, "%.2d,%d C", itemp/10, itemp%10);
         rf12_easySend(&glcd_send, sizeof glcd_send);
-        rf12_easyPoll(); // Actually send the data
-        */
+        rf12_easyPoll(); // Actually send the data */
+        // Do display on local LCD
+        sprintf(glcd_send.box_data, "%2d,%d C", itemp/10, itemp%10);
+        lcd.setCursor(9,1);
+        lcd.print(">"); 
+        lcd.print(glcd_send.box_data);
+        
 
         delay(250);
         glcd_send.box=2;
@@ -355,7 +393,7 @@ void loop () {
           sprintf(glcd_send.box_data, "-%d,%d C ", otemp/10, abs(otemp%10));
         }
         lcd.setCursor(0,1);
-        lcd.print(glcd_send.box_title); lcd.print(glcd_send.box_data);
+        lcd.print("<"); lcd.print(glcd_send.box_data);
         rf12_easySend(&glcd_send, sizeof glcd_send);
         rf12_easyPoll(); // Actually send the data
 
@@ -413,6 +451,15 @@ void loop () {
             #endif
             watt_set = 0;
         }
+        if(gas_set) {
+            stash.print("Gas,");stash.println(gas);
+            #if DEBUG
+            Serial.print("Send g  ");Serial.println(gas);
+            #endif
+            gas_send = 1;
+	    gas = 0;
+        }
+
         if(itemp_set) {
             stash.print("Inside,");stash.println(itemp_float);
             #if DEBUG
@@ -451,7 +498,9 @@ void loop () {
     }
     
     if ( wdtMetro.check() ) {
-      if (UNO) wdt_reset();
+        #if UNO
+          wdt_reset();
+        #endif
     }
     
     // read commands from serial input
