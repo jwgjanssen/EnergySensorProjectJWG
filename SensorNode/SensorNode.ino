@@ -18,6 +18,8 @@
 //                        the time- and power-calculation has been adapted
 // 31aug2012	Jos	Changed layout/readability/comments
 // 09sep2012    Jos     Included code for 8 second watchdog reset
+// 15feb2013    Jos     Added code to re-initialze the rf12 every one week to avoid hangup after a long time
+// 15feb2013    Jos     Changed sampleMetro from 5 to 2 ms
 
 #include <JeeLib.h>
 #include <Metro.h>
@@ -40,7 +42,8 @@ Port electr_led (1);
 Port portGas (3);
 Port gas_led (3);
 
-Metro sampleMetro = Metro(5);
+Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
+Metro sampleMetro = Metro(2);
 Metro wdtMetro = Metro(1000);
 
 // Variables for the sensor readings
@@ -275,13 +278,20 @@ void flashd(Port light) {
 }
 
 
+void init_rf12 () {
+    rf12_initialize(3, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 3
+    rf12_easyInit(0); // Send interval = 0 sec (=immediate).
+}
+
+
 void setup() {
     #if DEBUG
       Serial.begin(57600);
       Serial.println("\n[Monitoring a Electricity & Gas Meter]");
     #endif
-    rf12_initialize(3, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 3
-    rf12_easyInit(0); // Send interval = 0 sec (=immediate).
+    init_rf12();
+    //rf12_initialize(3, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 3
+    //rf12_easyInit(0); // Send interval = 0 sec (=immediate).
     portLeft.mode(INPUT);
     portRight.mode(INPUT);
     electr_led.mode(OUTPUT);
@@ -296,6 +306,10 @@ void setup() {
 
   
 void loop() {
+    // re-initialize rf12 every week to avoid rf12 hangup after a long time
+    if ( rf12ResetMetro.check() ) {
+         init_rf12();
+    }
     // take a reading from the sensors 
     if ( sampleMetro.check() ) {
          // read sensors
