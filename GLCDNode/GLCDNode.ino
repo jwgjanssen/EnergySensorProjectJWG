@@ -13,8 +13,14 @@
 //
 // Author: Jos Janssen
 // Modifications:
-// Date:        Who:   Added:
-// 01jul2012    Jos    Corrected typo in comments
+// Date:        Who:    Added:
+// 01jul2012    Jos     Corrected typo in comments
+// 22sep2012    Jos     Added LDR for controlling display brightness
+// 24sep2012    Jos     Included code for 8 second watchdog reset
+// 15feb2013    Jos     Added code to re-initialze the rf12 every one week to avoid hangup after a long time
+// 16feb2013    Jos     Adjusted GLCD LDR to brightness mapping
+
+#define DEBUG 0
 
 #include <JeeLib.h>
 #include <Metro.h>
@@ -25,7 +31,10 @@
 #include "utility/font_clR5x8.h"
 #include "utility/font_10x20.h"
 
-#define DEBUG 0
+// Crash protection: Jeenode resets itself after x seconds of none activity (set in WDTO_xS)
+const int UNO = 1;    // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
+#include <avr/wdt.h>  // All Jeenodes have the UNO bootloader
+ISR(WDT_vect) { Sleepy::watchdogEvent(); }
 
 // JeeNode Port 1+4: GLCD display 128x64
 GLCD_ST7565 glcd;
@@ -39,10 +48,17 @@ OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 int itemp;
 
-// JeeNode Port 3: button to brighten display temporarily
+// JeeNode Port 3: button to brighten display temporarily (digital), LDR for light measurement (analog)
 Port button (3);
+Port LDRport (3);
+boolean buttonPressed=0;
+int LDR, LDRbacklight;
 
+Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
 Metro sampleMetro = Metro(60500);
+Metro LDRMetro = Metro(1000);
+Metro wdtMetro = Metro(1500);
+
 
 struct { char type; long actual; long rotations; long rotationMs;
                  int minA; int maxA; int minB; int maxB;
@@ -115,22 +131,32 @@ void display_data () {
     glcd.refresh();
 }
 
+void init_rf12 () {
+    rf12_initialize(4, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 4
+    rf12_easyInit(0); // Send interval = 0 sec (=immediate).
+}
+
 void setup () {
     button.mode(INPUT);
     #if DEBUG
       Serial.begin(57600);
       Serial.println("\n[Start debug output]");
     #endif
-    rf12_initialize(4, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 4
-    rf12_easyInit(0); // Send interval = 0 sec (=immediate)
+    init_rf12();
     sensors.begin(); // DS18B20 default precision 12 bit.
     glcd.begin();
     glcd.backLight(255);
     light.set(duration); // for dimming purposes
     display_data();
+    
+    if (UNO) wdt_enable(WDTO_8S);  // set timeout to 8 seconds
 }
 
 void loop () {
+    // re-initialize rf12 every week to avoid rf12 hangup after a long time
+    if ( rf12ResetMetro.check() ) {
+         init_rf12();
+    }
     if ( sampleMetro.check() ) {
         sensors.requestTemperatures(); // Send the command to get temperatures
         itemp=10*sensors.getTempCByIndex(0);
@@ -170,19 +196,35 @@ void loop () {
     }
     
     if (button.digiRead()) {
+        buttonPressed=1;
         #if DEBUG
           Serial.println("button pressed");
         #endif
-        for(i=50; i<255; i++) {
+        for(i=10; i<255; i++) {
           glcd.backLight(i);
           delay(3);
         }
         light.set(duration);
     }
-    if (light.poll()) { 
-        for(i=255; i>50; i--) {
+    if (light.poll()) {
+        for(i=255; i>10; i--) {
           glcd.backLight(i);
           delay(3);
         }
+        buttonPressed=0;
+    }
+
+    if ( LDRMetro.check() && !buttonPressed) {
+        LDR=LDRport.anaRead();				// Read LDR value for light level in the room
+        LDRbacklight=map(LDR,0,400,50,255);     	// Map LDR data to GLCD brightness
+        LDRbacklight=constrain(LDRbacklight,0,255);	// constrain value to 0-255
+        #if DEBUG
+          Serial.print("LDR = "); Serial.print(LDR);Serial.print("   LDRbacklight = "); Serial.println(LDRbacklight);
+        #endif
+        glcd.backLight(LDRbacklight);
+    }
+    
+    if ( wdtMetro.check() ) {
+      if (UNO) wdt_reset();
     }
 }
