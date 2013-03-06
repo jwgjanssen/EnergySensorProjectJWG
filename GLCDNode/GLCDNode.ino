@@ -4,10 +4,11 @@
 // Node address: 868 Mhz, net group 5, node 4.
 // Local sensors: - inside temperature (DS18B20)
 //                - microswitch (to light up GLCD)
-// Receives:      - electricity actual usage (from CentralNode)
-//                - outside temperature (from CentralNode)
-//                - barometric pressure (from CentralNode)
-// Sends:         - inside temperature (to CentralNode)
+// Receives:      - (1) electricity actual usage (from CentralNode)
+//                - (2) gas actual usage (from CentralNode)
+//                - (4) outside temperature (from CentralNode)
+//                - (5) outside pressure (from CentralNode)
+// Sends:         - (i) inside temperature (to CentralNode)
 // Other:         - 64x128 graphic LCD (to display electricity usage,
 //                  inside/outside temperature & barometric pressure)
 //
@@ -20,6 +21,7 @@
 // 15feb2013    Jos     Added code to re-initialze the rf12 every one week to avoid hangup after a long time
 // 16feb2013    Jos     Adjusted GLCD LDR to brightness mapping
 // 05mar2013    Jos     Changed layout of GLCD
+// 06mar2013    Jos     Changed the way data is received from CentralNode
 
 #define DEBUG 0
 
@@ -29,7 +31,6 @@
 #include <DallasTemperature.h>
 #include <GLCD_ST7565.h>
 #include "utility/font_4x6.h"
-#include "utility/font_clR5x8.h"
 #include "utility/font_helvB10.h"
 #include "utility/font_helvB18.h"
 
@@ -57,7 +58,7 @@ boolean buttonPressed=0;
 int LDR, LDRbacklight;
 
 Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
-Metro sampleMetro = Metro(60500);
+Metro temperatureMetro = Metro(60500);
 Metro LDRMetro = Metro(1000);
 Metro wdtMetro = Metro(1500);
 
@@ -68,102 +69,104 @@ struct { char type; long actual; long rotations; long rotationMs;
 } payload;
 
 typedef struct {
-  char box;
-  char box_title[15];
-  char box_data[10];
-} glcd_recv;
-glcd_recv glcd_data;
+  byte type;
+  int value;
+} d_payload_t;
+d_payload_t d_payload;
 
-struct {
-  char box_title[6][15];
-  char box_data[6][10];
-} glcd_display;
+char d_value[6][10];
        
 MilliTimer light;
 int duration=60000;
 int i;
 
 void display_data () {
-    byte i, x, y;
-    
-    strcpy(glcd_display.box_title[glcd_data.box], glcd_data.box_title);
-    strcpy(glcd_display.box_data[glcd_data.box],  glcd_data.box_data);
-    
-    // Override text for box 2 because of locally read inside temperature data
-    sprintf(glcd_display.box_title[2], "Temperatuur C");
-    if (itemp > -1 || itemp < -9) {
-      sprintf(glcd_display.box_data[4], "%3d,%d", itemp/10, abs(itemp%10));
-    } else {
-      sprintf(glcd_display.box_data[4], "-%2d,%d", itemp/10, abs(itemp%10));
-    }
-    //sprintf(glcd_display.box_data[4], "%2d,%d", itemp/10, itemp%10);
+    byte i;
+
+        switch (d_payload.type)
+        {
+          case 1: {  // Electricity
+            sprintf(d_value[1], " %4d", d_payload.value);
+            break;
+          }
+          case 2: {  // Gas
+            break;
+          }
+          case 3: {  // Inside temperature
+            if (d_payload.value > -1 || d_payload.value < -9) {
+              sprintf(d_value[3], "%3d,%d", d_payload.value/10, abs(d_payload.value%10));
+            } else {
+              sprintf(d_value[3], "-%2d,%d", d_payload.value/10, abs(d_payload.value%10));
+            }
+            break;
+          }
+          case 4: {  // Outside temperature
+            if (d_payload.value > -1 || d_payload.value < -9) {
+              sprintf(d_value[4], "%3d,%d", d_payload.value/10, abs(d_payload.value%10));
+            } else {
+              sprintf(d_value[4], "-%2d,%d", d_payload.value/10, abs(d_payload.value%10));
+            }
+            break;
+          }
+          case 5: {  // Outside pressure
+            sprintf(d_value[5], "%4d,%d", d_payload.value/10, d_payload.value%10);
+            break;
+          }
+          case 6: {  // Spare
+            break;
+          }
+        }
     
     glcd.clear();
-    // Create box lines
-    //glcd.drawLine(63, 0, 63, 63, WHITE);
-    //glcd.drawLine(63, 16, 127, 16, WHITE);
-    //glcd.drawLine(0, 32, 127, 32, WHITE);
-    //glcd.drawLine(63, 48, 127, 48, WHITE);
     
-    // Left pointing arrow (outside temp)
-    glcd.drawLine(1, 45, 8, 45, WHITE);
-    glcd.drawLine(2, 44, 2, 46, WHITE);
-    glcd.drawLine(3, 43, 3, 47, WHITE);
-    glcd.drawLine(4, 42, 4, 48, WHITE);
-    
-    // Right pointing arrow (inside temp)
-    glcd.drawLine(1, 56, 8, 56, WHITE);
-    glcd.drawLine(5, 53, 5, 59, WHITE);
-    glcd.drawLine(6, 54, 6, 58, WHITE);
-    glcd.drawLine(7, 55, 7, 57, WHITE);
-
-    #if DEBUG
-      Serial.print(glcd_display.box_title[glcd_data.box]);
-      Serial.print(", ");
-      Serial.println(glcd_display.box_data[glcd_data.box]);
-    #endif
- 
+    // Write all the data for the display
+    glcd.setFont(font_4x6);
+    glcd.drawString_P(1, 1, PSTR("   Verbruik W"));
+    glcd.drawString_P(1, 33, PSTR(" Temperatuur C"));
+    glcd.drawString_P(65, 33, PSTR("Luchtdruk hPa"));
     for (i=0; i<6; i++){
         switch (i) {
-        /*case 0: { x=1; y=1; break; }
-          case 1: { x=65; y=1; break; }
-          case 2: { x=65; y=17; break; }
-          case 3: { x=1; y=33; break; }
-          case 4: { x=65; y=33; break; }
-          case 5: { x=65; y=49; break; }*/
-          case 0: { x=1; y=1; break; }
-          case 1: { x=65; y=1; break; }
-          case 2: { x=1; y=33; break; }
-          case 3: { x=65; y=33; break; }
-          case 4: { x=1; y=49; break; }
-          case 5: { x=65; y=49; break; }
+          case 1:{  // Electricity
+            glcd.setFont(font_helvB18);
+            glcd.drawString(1, 9, d_value[1]);
+            break;
+          }
+          case 2:{  // Gas
+            break;
+          }
+          case 3:{  // Inside temperature
+            // Right pointing arrow (inside temp)
+            glcd.drawLine(1, 45, 8, 45, WHITE);
+            glcd.drawLine(5, 42, 5, 48, WHITE);
+            glcd.drawLine(6, 43, 6, 47, WHITE);
+            glcd.drawLine(7, 44, 7, 46, WHITE);
+
+            glcd.setFont(font_helvB10);
+            glcd.drawString(12, 39, d_value[3]);
+            break;
+          }
+          case 4:{  // Outside temperature
+            // Left pointing arrow (outside temp)
+            glcd.drawLine(1, 56, 8, 56, WHITE);
+            glcd.drawLine(2, 55, 2, 57, WHITE);
+            glcd.drawLine(3, 54, 3, 58, WHITE);
+            glcd.drawLine(4, 53, 4, 59, WHITE);
+
+            glcd.setFont(font_helvB10);
+            glcd.drawString(12, 51, d_value[4]);
+            break;
+          }
+          case 5:{  // Outside pressure
+            glcd.setFont(font_helvB10);
+            glcd.drawString(67, 39, d_value[5]);
+            break;
+          }
+          case 6:{  // Spare
+            break;
+          }
         }
-        glcd.setFont(font_4x6);
-        glcd.drawString(x, y, glcd_display.box_title[i]);
-        switch (i) {
-          case 0: case 1: {
-              glcd.setFont(font_helvB18);
-              glcd.drawString(x, y+8, glcd_display.box_data[i]);
-              break;
-          }
-          case 2: {
-              glcd.setFont(font_helvB10);
-              glcd.drawString(x+9, y+6, glcd_display.box_data[i]);
-              break;
-          }
-          case 4: {
-              glcd.setFont(font_helvB10);
-              glcd.drawString(x+9, y+2, glcd_display.box_data[i]);
-              break;
-          }
-          case 3: case 5: {
-              glcd.setFont(font_helvB10);
-              glcd.drawString(x+2, y+6, glcd_display.box_data[i]);
-              break;
-          }
-        }
-        
     }
+    
     glcd.refresh();
 }
 
@@ -181,6 +184,8 @@ void setup () {
     init_rf12();
     sensors.begin(); // DS18B20 default precision 12 bit.
     glcd.begin();
+    d_payload.type=0;
+    display_data();
     
     if (UNO) wdt_enable(WDTO_8S);  // set timeout to 8 seconds
 }
@@ -191,7 +196,7 @@ void loop () {
          init_rf12();
     }
     
-    if ( sampleMetro.check() ) {
+    if ( temperatureMetro.check() ) {
         sensors.requestTemperatures(); // Send the command to get temperatures
         itemp=10*sensors.getTempCByIndex(0);
         payload.type = 'i'; // type is inside temperature data
@@ -205,24 +210,22 @@ void loop () {
         rf12_easySend(&payload, sizeof payload);
         rf12_easyPoll(); // Actually send the data every interval (see easyInit above)
         
+        d_payload.type=3;
+        d_payload.value=itemp;
         display_data();
     }
     
-    if (rf12_recvDone() && rf12_crc == 0 && rf12_len == sizeof (glcd_data)) {
+    if (rf12_recvDone() && rf12_crc == 0 && rf12_len == sizeof (d_payload_t)) {
+        d_payload = *(d_payload_t*) rf12_data;
         #if DEBUG
-              Serial.println("R ");
-        #endif
-        glcd_data = *(glcd_recv*) rf12_data;
-        #if DEBUG
-          Serial.print(glcd_data.box);
+          Serial.print(d_payload.type);
           Serial.print(" ");
-          Serial.print(glcd_data.box_title);
-          Serial.print(" ");
-          Serial.println(glcd_data.box_data);
+          Serial.println(d_payload.value);
         #endif
         if (RF12_WANTS_ACK) {
             rf12_sendStart(RF12_ACK_REPLY, 0, 0);
         }
+        
         display_data();
     }
     
