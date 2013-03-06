@@ -48,6 +48,7 @@
 // 04mar2013    Jos     Added code to receive adjusted electricity and gas sensor trigger values
 // 04mar2013    Jos     Used showString(PSTR("...")) for several long strings to save RAM space
 // 06mar2013    Jos     Changed the way data is send to GLCDNode
+// 06mar2013    Jos     Using PSTR("...") in stash.print does not work
 
 #define DEBUG 0        // Set to 1 to activate debug code
 #define UNO 1          // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
@@ -475,14 +476,14 @@ void loop () {
         // we can determine the size of the generated message ahead of time
         byte sd = stash.create();
         if(watt_set) {
-            stash.print(PSTR("Electricity,"));stash.println(watt);
+            stash.print("Electricity,");stash.println(watt);
             #if DEBUG
             showString(PSTR("Send e  "));Serial.println(watt);
             #endif
             watt_set = 0;
         }
         if(gas_set) {
-            stash.print(PSTR("Gas,"));stash.println(gas);
+            stash.print("Gas,");stash.println(gas);
             #if DEBUG
             showString(PSTR("Send g  "));Serial.println(gas);
             #endif
@@ -491,21 +492,21 @@ void loop () {
         }
 
         if(itemp_set) {
-            stash.print(PSTR("Inside,"));stash.println(itemp_float);
+            stash.print("Inside,");stash.println(itemp_float);
             #if DEBUG
             showString(PSTR("Send i  "));Serial.println(itemp_float);
             #endif
             itemp_set = 0;
         }
         if(otemp_set) {
-            stash.print(PSTR("Outside,"));stash.println(otemp_float);
+            stash.print("Outside,");stash.println(otemp_float);
             #if DEBUG
             showString(PSTR("Send o  "));Serial.println(otemp_float);
             #endif
             otemp_set = 0;
         }
         if(opres_set) {
-            stash.print(PSTR("Pressure,"));stash.println(opres_float);
+            stash.print("Pressure,");stash.println(opres_float);
             #if DEBUG
             showString(PSTR("Send p  "));Serial.println(opres_float);
             #endif
