@@ -4,12 +4,16 @@ Node connected to the computer via USB.
 Node address: 868 Mhz, net group 5, node 30.
 Local sensors: - outside temperature (DS18B20)
                - barometric pressure (BMP085)
-Receives:      - electricity readings (from SensorNode)
-               - gas readings (from SensorNode)
-               - inside temperature (from GLCDNode)
-Sends:         - electricity actual usage (to GLCDNode)
-               - outside temperature (to GLCDNode)
-               - barometric pressure (to GLCDNode)
+Receives:      - (e) electricity readings (from SensorNode)
+               - (g) gas readings (from SensorNode)
+               - (i) inside temperature (from GLCDNode)
+               - (z) adjusted electricity sensor trigger values (from SensorNode)
+               - (y) adjusted gas sensor trigger values (from SensorNode)
+               - (s) current eeprom sensor trigger values (from SensorNode)
+Sends:         - (1) electricity actual usage (to GLCDNode)
+               - (2) gas actual usage (to GLCDNode)
+               - (4) outside temperature (to GLCDNode)
+               - (5) outside pressure (to GLCDNode)
                - all values to USB for webpage
                - all values to cosm.com via Ethercard
 Other:         - 2x16 LCD display (to display electricity usage & outside temperature)
