@@ -19,6 +19,7 @@
 // 24sep2012    Jos     Included code for 8 second watchdog reset
 // 15feb2013    Jos     Added code to re-initialze the rf12 every one week to avoid hangup after a long time
 // 16feb2013    Jos     Adjusted GLCD LDR to brightness mapping
+// 05mar2013    Jos     Changed layout of GLCD
 
 #define DEBUG 0
 
@@ -29,7 +30,8 @@
 #include <GLCD_ST7565.h>
 #include "utility/font_4x6.h"
 #include "utility/font_clR5x8.h"
-#include "utility/font_10x20.h"
+#include "utility/font_helvB10.h"
+#include "utility/font_helvB18.h"
 
 // Crash protection: Jeenode resets itself after x seconds of none activity (set in WDTO_xS)
 const int UNO = 1;    // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
@@ -67,14 +69,14 @@ struct { char type; long actual; long rotations; long rotationMs;
 
 typedef struct {
   char box;
-  char box_title[12];
-  char box_data[12];
+  char box_title[15];
+  char box_data[10];
 } glcd_recv;
 glcd_recv glcd_data;
 
 struct {
-  char box_title[8][12];
-  char box_data[8][12];
+  char box_title[6][15];
+  char box_data[6][10];
 } glcd_display;
        
 MilliTimer light;
@@ -87,16 +89,34 @@ void display_data () {
     strcpy(glcd_display.box_title[glcd_data.box], glcd_data.box_title);
     strcpy(glcd_display.box_data[glcd_data.box],  glcd_data.box_data);
     
-    // Override text for box 1 because of locally read inside temperature data
-    sprintf(glcd_display.box_title[1], "Binnen");
-    sprintf(glcd_display.box_data[1], "%2d,%d C", itemp/10, itemp%10);
+    // Override text for box 2 because of locally read inside temperature data
+    sprintf(glcd_display.box_title[2], "Temperatuur C");
+    if (itemp > -1 || itemp < -9) {
+      sprintf(glcd_display.box_data[4], "%3d,%d", itemp/10, abs(itemp%10));
+    } else {
+      sprintf(glcd_display.box_data[4], "-%2d,%d", itemp/10, abs(itemp%10));
+    }
+    //sprintf(glcd_display.box_data[4], "%2d,%d", itemp/10, itemp%10);
     
     glcd.clear();
-    glcd.drawLine(63, 0, 63, 63, WHITE);
-    glcd.drawLine(63, 16, 127, 16, WHITE);
-    glcd.drawLine(0, 32, 127, 32, WHITE);
-    glcd.drawLine(63, 48, 127, 48, WHITE);
+    // Create box lines
+    //glcd.drawLine(63, 0, 63, 63, WHITE);
+    //glcd.drawLine(63, 16, 127, 16, WHITE);
+    //glcd.drawLine(0, 32, 127, 32, WHITE);
+    //glcd.drawLine(63, 48, 127, 48, WHITE);
     
+    // Left pointing arrow (outside temp)
+    glcd.drawLine(1, 45, 8, 45, WHITE);
+    glcd.drawLine(2, 44, 2, 46, WHITE);
+    glcd.drawLine(3, 43, 3, 47, WHITE);
+    glcd.drawLine(4, 42, 4, 48, WHITE);
+    
+    // Right pointing arrow (inside temp)
+    glcd.drawLine(1, 56, 8, 56, WHITE);
+    glcd.drawLine(5, 53, 5, 59, WHITE);
+    glcd.drawLine(6, 54, 6, 58, WHITE);
+    glcd.drawLine(7, 55, 7, 57, WHITE);
+
     #if DEBUG
       Serial.print(glcd_display.box_title[glcd_data.box]);
       Serial.print(", ");
@@ -105,24 +125,40 @@ void display_data () {
  
     for (i=0; i<6; i++){
         switch (i) {
-          case 0: { x=1; y=1; break; }
+        /*case 0: { x=1; y=1; break; }
           case 1: { x=65; y=1; break; }
           case 2: { x=65; y=17; break; }
           case 3: { x=1; y=33; break; }
           case 4: { x=65; y=33; break; }
+          case 5: { x=65; y=49; break; }*/
+          case 0: { x=1; y=1; break; }
+          case 1: { x=65; y=1; break; }
+          case 2: { x=1; y=33; break; }
+          case 3: { x=65; y=33; break; }
+          case 4: { x=1; y=49; break; }
           case 5: { x=65; y=49; break; }
         }
         glcd.setFont(font_4x6);
         glcd.drawString(x, y, glcd_display.box_title[i]);
         switch (i) {
-          case 0: case 3: {
-              glcd.setFont(font_10x20);
-              glcd.drawString(x, y+10, glcd_display.box_data[i]);
+          case 0: case 1: {
+              glcd.setFont(font_helvB18);
+              glcd.drawString(x, y+8, glcd_display.box_data[i]);
               break;
           }
-          case 1: case 2: case 4: case 5: {
-              glcd.setFont(font_clR5x8);
-              glcd.drawString(x+2, y+7, glcd_display.box_data[i]);
+          case 2: {
+              glcd.setFont(font_helvB10);
+              glcd.drawString(x+9, y+6, glcd_display.box_data[i]);
+              break;
+          }
+          case 4: {
+              glcd.setFont(font_helvB10);
+              glcd.drawString(x+9, y+2, glcd_display.box_data[i]);
+              break;
+          }
+          case 3: case 5: {
+              glcd.setFont(font_helvB10);
+              glcd.drawString(x+2, y+6, glcd_display.box_data[i]);
               break;
           }
         }
@@ -145,9 +181,6 @@ void setup () {
     init_rf12();
     sensors.begin(); // DS18B20 default precision 12 bit.
     glcd.begin();
-    glcd.backLight(255);
-    light.set(duration); // for dimming purposes
-    display_data();
     
     if (UNO) wdt_enable(WDTO_8S);  // set timeout to 8 seconds
 }
@@ -157,6 +190,7 @@ void loop () {
     if ( rf12ResetMetro.check() ) {
          init_rf12();
     }
+    
     if ( sampleMetro.check() ) {
         sensors.requestTemperatures(); // Send the command to get temperatures
         itemp=10*sensors.getTempCByIndex(0);
@@ -178,7 +212,6 @@ void loop () {
         #if DEBUG
               Serial.println("R ");
         #endif
-
         glcd_data = *(glcd_recv*) rf12_data;
         #if DEBUG
           Serial.print(glcd_data.box);
@@ -187,11 +220,9 @@ void loop () {
           Serial.print(" ");
           Serial.println(glcd_data.box_data);
         #endif
-       
         if (RF12_WANTS_ACK) {
             rf12_sendStart(RF12_ACK_REPLY, 0, 0);
         }
-
         display_data();
     }
     
@@ -200,14 +231,15 @@ void loop () {
         #if DEBUG
           Serial.println("button pressed");
         #endif
-        for(i=10; i<255; i++) {
+        for(i=LDRbacklight; i<255; i++) {
           glcd.backLight(i);
           delay(3);
         }
         light.set(duration);
     }
+    
     if (light.poll()) {
-        for(i=255; i>10; i--) {
+        for(i=255; i>LDRbacklight; i--) {
           glcd.backLight(i);
           delay(3);
         }
@@ -216,10 +248,11 @@ void loop () {
 
     if ( LDRMetro.check() && !buttonPressed) {
         LDR=LDRport.anaRead();				// Read LDR value for light level in the room
-        LDRbacklight=map(LDR,0,400,50,255);     	// Map LDR data to GLCD brightness
+        LDRbacklight=map(LDR,0,400,25,255);     	// Map LDR data to GLCD brightness
         LDRbacklight=constrain(LDRbacklight,0,255);	// constrain value to 0-255
         #if DEBUG
-          Serial.print("LDR = "); Serial.print(LDR);Serial.print("   LDRbacklight = "); Serial.println(LDRbacklight);
+          Serial.print("LDR = "); Serial.print(LDR);
+          Serial.print("   LDRbacklight = "); Serial.println(LDRbacklight);
         #endif
         glcd.backLight(LDRbacklight);
     }
