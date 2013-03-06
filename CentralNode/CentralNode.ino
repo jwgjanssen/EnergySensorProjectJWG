@@ -4,9 +4,12 @@
 // Node address: 868 Mhz, net group 5, node 30.
 // Local sensors: - outside temperature (DS18B20)
 //                - barometric pressure (BMP085)
-// Receives:      - electricity readings (from SensorNode)
-//                - gas readings (from SensorNode)
-//                - inside temperature (from GLCDNode)
+// Receives:      - (e) electricity readings (from SensorNode)
+//                - (g) gas readings (from SensorNode)
+//                - (i) inside temperature (from GLCDNode)
+//                - (z) adjusted electricity sensor trigger values (from SensorNode)
+//                - (y) adjusted gas sensor trigger values (from SensorNode)
+//                - (s) current eeprom sensor trigger values (from SensorNode)
 // Sends:         - electricity actual usage (to GLCDNode)
 //                - outside temperature (to GLCDNode)
 //                - barometric pressure (to GLCDNode)
@@ -39,6 +42,8 @@
 // 02oct2012    Jos     Added Inside temperature to local LCD (changed layout for this)
 // 28oct2012	Jos	Added sending gas data to cosm.com
 // 15feb2013    Jos     Added code to re-initialze the rf12 every one week to avoid hangup after a long time
+// 04mar2013    Jos     Added code to receive adjusted electricity and gas sensor trigger values
+// 04mar2013    Jos     Used showString(PSTR("...")) for several long strings to save RAM space
 
 #define DEBUG 0        // Set to 1 to activate debug code
 #define UNO 1          // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
@@ -50,6 +55,7 @@
 #include <DallasTemperature.h>
 #include <PortsBMP085.h>
 #include <PortsLCD.h>
+#include <avr/pgmspace.h>
 #include "cosm_settings.h"  // contains cosm website, FEEDID & APIKEY :
 			    //   char website[] PROGMEM = "api.cosm.com";
 			    //   #define FEEDID "your-own-id"
@@ -105,8 +111,8 @@ struct { char type; long actual; long rotations; long rotationMs;
 
 struct {
   char box;
-  char box_title[12];
-  char box_data[12];
+  char box_title[15];
+  char box_data[10];
 } glcd_send;
        
 int watt = 0;
@@ -127,6 +133,19 @@ float itemp_float;
 float otemp_float;
 float opres_float;
 
+void showString (PGM_P s) {
+        char c;
+        while ((c = pgm_read_byte(s++)) != 0)
+            Serial.print(c);
+}
+    
+void showStringln (PGM_P s) {
+        char c;
+        while ((c = pgm_read_byte(s++)) != 0)
+            Serial.print(c);
+        Serial.println();
+}
+    
 typedef struct {
   char command[5];
   int value;
@@ -134,10 +153,10 @@ typedef struct {
 eeprom_command change_eeprom;
 
 void send_eeprom_update() {
-    Serial.print("Sending: ");
-    Serial.print("Command= ");
+    showString(PSTR("Sending: "));
+    showString(PSTR("Command= "));
     Serial.print(change_eeprom.command);
-    Serial.print(", Value= ");
+    showString(PSTR(", Value= "));
     Serial.println(change_eeprom.value);
     rf12_easySend(&change_eeprom, sizeof change_eeprom);
     rf12_easyPoll(); // Actually send the data
@@ -174,7 +193,7 @@ void handleInput () {
                        sprintf(cmdbuf, ""); sprintf(valbuf, ""); cmdOK=0;
                    } else {
                        //Serial.println("");
-                       Serial.print("\nIllegal command: ");
+                       showString(PSTR("\nIllegal command: "));
                        Serial.println(cmdbuf);
                        sprintf(cmdbuf, "");
                        cmdOK=0;
@@ -186,7 +205,7 @@ void handleInput () {
         if (c=='.' && cmdOK) {
             sensorvalue = atoi(valbuf);
             if (sensorvalue < 1 || sensorvalue > 1023) {
-                Serial.print("\nIllegal sensor value: ");
+                showString(PSTR("\nIllegal sensor value: "));
                 Serial.println(sensorvalue);
             } else {
                 //Serial.print(" new sensor value: ");
@@ -208,29 +227,27 @@ void init_rf12 () {
 
 void setup () {
     Serial.begin(57600);
-    Serial.println("\n[START recv]");
+    showStringln(PSTR("\n[START recv]"));
     init_rf12();
-    //rf12_initialize(30, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 30
-    //rf12_easyInit(0);       // Send interval = 0 sec (=immediate).
     if (ether.begin(sizeof Ethernet::buffer, mymac) == 0) {
-        Serial.println("Failed to access Ethernet controller");
+        showStringln(PSTR("Failed to access Ethernet controller"));
         while (1);
     }
     #if DEBUG
-      Serial.println("begin DONE");
+      showStringln(PSTR("begin DONE"));
     #endif
     if (!ether.dhcpSetup()) {
-        Serial.println("DHCP failed");
+        showStringln(PSTR("DHCP failed"));
         while (1);
     }
     #if DEBUG
-      Serial.println("DHCP DONE");
+      showStringln(PSTR("DHCP DONE"));
     #endif
     ether.printIp("IP:  ", ether.myip);
-    ether.printIp("GW:  ", ether.gwip);  
-    ether.printIp("DNS: ", ether.dnsip);  
+    ether.printIp("GW:  ", ether.gwip);
+    ether.printIp("DNS: ", ether.dnsip); 
     if (!ether.dnsLookup(website))
-        Serial.println("DNS failed");
+        showStringln(PSTR("DNS failed"));
     ether.printIp("SRV: ", ether.hisip);
     // INIT port 1
     lcd.begin(16, 2);       // LCD is 2x16 chars
@@ -258,29 +275,29 @@ void loop () {
 	{
 	    case 'e': 
                 {
-                  Serial.print("e ");
+                  showString(PSTR("e "));
                   Serial.print(data->actual);
                   watt = (int)data->actual;
 		  watt_set = 1;
-                  Serial.print(" ");
+                  showString(PSTR(" "));
                   Serial.print(data->rotations);
-                  Serial.print(" ");
-                  Serial.print("time=");
+                  showString(PSTR(" "));
+                  showString(PSTR("time="));
                   Serial.print(data->rotationMs);
-                  Serial.print(" ms");
-                  Serial.print("  measured min-max: L:");
+                  showString(PSTR(" ms"));
+                  showString(PSTR("  measured min-max: L:"));
                   Serial.print(data->minA);
-                  Serial.print("->");
+                  showString(PSTR("->"));
                   Serial.print(data->maxA);
-                  Serial.print(", R:");
+                  showString(PSTR(", R:"));
                   Serial.print(data->minB);
-                  Serial.print("->");
+                  showString(PSTR("->"));
                   Serial.print(data->maxB);
                   break;
                 }
 	    case 'g':
                 {
-                  Serial.print("g ");
+                  showString(PSTR("g "));
                   Serial.print(data->actual);
 		  if ( gas_send == 1 ) {
                     gas_send = 0;
@@ -290,64 +307,86 @@ void loop () {
 		    gas = gas + 10; // Every g-line received from sensornode means 10L gas used
                     //Serial.print("(0)");
                   }
-                  Serial.print(" ");
+                  showString(PSTR(" "));
                   Serial.print(data->rotations);
-                  Serial.print("  measured min-max: ");
+                  showString(PSTR("  measured min-max: "));
                   Serial.print(data->minC);
-                  Serial.print("->");
+                  showString(PSTR("->"));
                   Serial.print(data->maxC);
                   break;
                 }
             case 'i':  // inside temperature
                 {
-                  Serial.print("i ");
+                  showString(PSTR("i "));
                   Serial.print(data->actual);
                   itemp=(int)data->actual;
                   itemp_float=(float)data->actual/10;
                   itemp_set = 1;
-                  Serial.print(" ");
+                  showString(PSTR(" "));
                   break;
                 }
             /* case 'o':  // outside temperature
                 {
-                  Serial.print("o ");
+                  showString(PSTR("o "));
                   Serial.print(data->actual);
                   otemp=(int)data->actual;
-                  Serial.print(" ");
+                  showString(PSTR(" "));
                   break;
                 } */
             /* case 'p':  // outside pressure
                 {
-                  Serial.print("p ");
+                  showString(PSTR("p "));
                   Serial.print(data->actual);
                   opres=(int)data->actual;
-                  Serial.print(" "); // extra space at the end is needed
+                  showString(PSTR(" ")); // extra space at the end is needed
                   break;
                 } */
        	    case 's':  // display sensor settings
                 {
-                  Serial.print("s ");
-                  Serial.print("min-max: L:");
+                  showString(PSTR("s "));
+                  showString(PSTR("min-max: L:"));
                   Serial.print(data->minA);
-                  Serial.print("->");
+                  showString(PSTR("->"));
                   Serial.print(data->maxA);
-                  Serial.print(", R:");
+                  showString(PSTR(", R:"));
                   Serial.print(data->minB);
-                  Serial.print("->");
+                  showString(PSTR("->"));
                   Serial.print(data->maxB);
-                  Serial.print(", G:");
+                  showString(PSTR(", G:"));
                   Serial.print(data->minC);
-                  Serial.print("->");
+                  showString(PSTR("->"));
                   Serial.print(data->maxC);
-                  Serial.print(", W:");
+                  showString(PSTR(", W:"));
                   Serial.print(data->minD);
-                  Serial.print("->");
+                  showString(PSTR("->"));
                   Serial.print(data->maxD);
+                  break;
+                }
+       	    case 'y':  // display adjusted gas sensor trigger values
+                {
+                  showString(PSTR("y "));
+                  showString(PSTR("Adjusted gas sensor trigger values: "));
+                  Serial.print(data->minA);
+                  showString(PSTR("->"));
+                  Serial.print(data->maxA);
+                  break;
+                }
+       	    case 'z':  // display adjusted gas sensor trigger values
+                {
+                  showString(PSTR("z "));
+                  showString(PSTR("Adjusted electricity sensor trigger values: L:"));
+                  Serial.print(data->minA);
+                  showString(PSTR("->"));
+                  Serial.print(data->maxA);
+                  showString(PSTR(" R:"));
+                  Serial.print(data->minB);
+                  showString(PSTR("->"));
+                  Serial.print(data->maxB);
                   break;
                 }
 	    default:
 		// You can use the default case.
-		Serial.print("Wrong payload type!");
+		showString(PSTR("Wrong payload type!"));
                 break;
 	}
         if (RF12_WANTS_ACK) {
@@ -362,8 +401,8 @@ void loop () {
         //lcd.clear();
         
         glcd_send.box=0;
-        sprintf(glcd_send.box_title, "Verbruik ");
-        sprintf(glcd_send.box_data, "%4d W", watt);
+        sprintf(glcd_send.box_title, "Verbruik W");
+        sprintf(glcd_send.box_data, " %4d", watt);
         lcd.setCursor(0,0);
         lcd.print(glcd_send.box_title); lcd.print(glcd_send.box_data);
         rf12_easySend(&glcd_send, sizeof glcd_send);
@@ -372,35 +411,45 @@ void loop () {
         /* Disabled because inside temperature data is read locally and displayed
          * directly by the GLCD node
         delay(250);
-        glcd_send.box=1;
-        sprintf(glcd_send.box_title, "Binnen ");
-        sprintf(glcd_send.box_data, "%.2d,%d C", itemp/10, itemp%10);
+        glcd_send.box=4;
+        //sprintf(glcd_send.box_title, "Binnen C");
+        sprintf(glcd_send.box_title, "");
+        if (itemp > -1 || itemp < -9) {
+          sprintf(glcd_send.box_data, "%3d,%d", itemp/10, abs(itemp%10));
+        } else {
+          sprintf(glcd_send.box_data, "-%2d,%d", itemp/10, abs(itemp%10));
+        }
         rf12_easySend(&glcd_send, sizeof glcd_send);
         rf12_easyPoll(); // Actually send the data */
         // Do display on local LCD
-        sprintf(glcd_send.box_data, "%2d,%d C", itemp/10, itemp%10);
+        if (itemp > -1 || itemp < -9) {
+          sprintf(glcd_send.box_data, "%3d,%d", itemp/10, abs(itemp%10));
+        } else {
+          sprintf(glcd_send.box_data, "-%2d,%d", itemp/10, abs(itemp%10));
+        }
         lcd.setCursor(9,1);
-        lcd.print(">"); 
-        lcd.print(glcd_send.box_data);
+        lcd.print(">"); lcd.print(glcd_send.box_data); lcd.print("C"); 
+
         
 
         delay(250);
         glcd_send.box=2;
-        sprintf(glcd_send.box_title, "Buiten ");
+        //sprintf(glcd_send.box_title, "Buiten C");
+        sprintf(glcd_send.box_title, "");
         if (otemp > -1 || otemp < -9) {
-          sprintf(glcd_send.box_data, "%2d,%d C ", otemp/10, abs(otemp%10));
+          sprintf(glcd_send.box_data, "%3d,%d", otemp/10, abs(otemp%10));
         } else {
-          sprintf(glcd_send.box_data, "-%d,%d C ", otemp/10, abs(otemp%10));
+          sprintf(glcd_send.box_data, "-%2d,%d", otemp/10, abs(otemp%10));
         }
         lcd.setCursor(0,1);
-        lcd.print("<"); lcd.print(glcd_send.box_data);
+        lcd.print("<"); lcd.print(glcd_send.box_data); lcd.print("C");
         rf12_easySend(&glcd_send, sizeof glcd_send);
         rf12_easyPoll(); // Actually send the data
 
         delay(250);
-        glcd_send.box=4;
-        sprintf(glcd_send.box_title, "Barometer ");
-        sprintf(glcd_send.box_data, "%4d,%d hPa", opres/10, opres%10);
+        glcd_send.box=3;
+        sprintf(glcd_send.box_title, "Barometer hPa");
+        sprintf(glcd_send.box_data, "%4d,%d", opres/10, opres%10);
         rf12_easySend(&glcd_send, sizeof glcd_send);
         rf12_easyPoll(); // Actually send the data
    }
@@ -411,9 +460,9 @@ void loop () {
         otemp=(int) (10*sensors.getTempCByIndex(0));
 	otemp_float=(float)otemp/10;
         otemp_set = 1;
-        Serial.print("o ");
+        showString(PSTR("o "));
         Serial.print(otemp);
-        Serial.println(" "); // extra space at the end is needed
+        showStringln(PSTR(" ")); // extra space at the end is needed
         
         psensor.measure(BMP085::TEMP);
         psensor.measure(BMP085::PRES);
@@ -421,9 +470,9 @@ void loop () {
         opres=(int) (bmppres/10);
 	opres_float=(float)opres/10;
         opres_set = 1;
-        Serial.print("p ");
+        showString(PSTR("p "));
         Serial.print(opres);
-        Serial.println(" "); // extra space at the end is needed
+        showStringln(PSTR(" ")); // extra space at the end is needed
         
         sendpayload.type = 'o'; // type is outside temperature data
         sendpayload.actual = (long) otemp;
@@ -445,39 +494,39 @@ void loop () {
         // we can determine the size of the generated message ahead of time
         byte sd = stash.create();
         if(watt_set) {
-            stash.print("Electricity,");stash.println(watt);
+            stash.print(PSTR("Electricity,"));stash.println(watt);
             #if DEBUG
-            Serial.print("Send e  ");Serial.println(watt);
+            showString(PSTR("Send e  "));Serial.println(watt);
             #endif
             watt_set = 0;
         }
         if(gas_set) {
-            stash.print("Gas,");stash.println(gas);
+            stash.print(PSTR("Gas,"));stash.println(gas);
             #if DEBUG
-            Serial.print("Send g  ");Serial.println(gas);
+            showString(PSTR("Send g  "));Serial.println(gas);
             #endif
             gas_send = 1;
 	    gas = 0;
         }
 
         if(itemp_set) {
-            stash.print("Inside,");stash.println(itemp_float);
+            stash.print(PSTR("Inside,"));stash.println(itemp_float);
             #if DEBUG
-            Serial.print("Send i  ");Serial.println(itemp_float);
+            showString(PSTR("Send i  "));Serial.println(itemp_float);
             #endif
             itemp_set = 0;
         }
         if(otemp_set) {
-            stash.print("Outside,");stash.println(otemp_float);
+            stash.print(PSTR("Outside,"));stash.println(otemp_float);
             #if DEBUG
-            Serial.print("Send o  ");Serial.println(otemp_float);
+            showString(PSTR("Send o  "));Serial.println(otemp_float);
             #endif
             otemp_set = 0;
         }
         if(opres_set) {
-            stash.print("Pressure,");stash.println(opres_float);
+            stash.print(PSTR("Pressure,"));stash.println(opres_float);
             #if DEBUG
-            Serial.print("Send p  ");Serial.println(opres_float);
+            showString(PSTR("Send p  "));Serial.println(opres_float);
             #endif
             opres_set = 0;
         }
