@@ -10,11 +10,14 @@
 //                - (z) adjusted electricity sensor trigger values (from SensorNode)
 //                - (y) adjusted gas sensor trigger values (from SensorNode)
 //                - (s) current eeprom sensor trigger values (from SensorNode)
-// Sends:         - electricity actual usage (to GLCDNode)
-//                - outside temperature (to GLCDNode)
-//                - barometric pressure (to GLCDNode)
+// Sends:         - (1) electricity actual usage (to GLCDNode)
+//                - (2) gas actual usage (to GLCDNode)
+//                - (4) outside temperature (to GLCDNode)
+//                - (5) outside pressure (to GLCDNode)
 //                - all values to USB for webpage
+//                - all values to cosm.com via Ethercard
 // Other:         - 2x16 LCD display (to display electricity usage & outside temperature)
+//                - Uses an Ethercard to send readings to cosm.com
 //		  - commands to get/set eeprom sensor settings of the SensorNode:
 //			(NOTE: get/set is possible via the serial interface of the Arduino IDE)
 //			gtst,.		get/display all the sensor min and max settings
@@ -44,6 +47,7 @@
 // 15feb2013    Jos     Added code to re-initialze the rf12 every one week to avoid hangup after a long time
 // 04mar2013    Jos     Added code to receive adjusted electricity and gas sensor trigger values
 // 04mar2013    Jos     Used showString(PSTR("...")) for several long strings to save RAM space
+// 06mar2013    Jos     Changed the way data is send to GLCDNode
 
 #define DEBUG 0        // Set to 1 to activate debug code
 #define UNO 1          // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
@@ -55,7 +59,6 @@
 #include <DallasTemperature.h>
 #include <PortsBMP085.h>
 #include <PortsLCD.h>
-#include <avr/pgmspace.h>
 #include "cosm_settings.h"  // contains cosm website, FEEDID & APIKEY :
 			    //   char website[] PROGMEM = "api.cosm.com";
 			    //   #define FEEDID "your-own-id"
@@ -110,16 +113,18 @@ struct { char type; long actual; long rotations; long rotationMs;
 } sendpayload;
 
 struct {
-  char box;
-  char box_title[15];
-  char box_data[10];
-} glcd_send;
+  byte type;
+  int value;
+} d_payload;
        
 int watt = 0;
 int gas = 0;
 int itemp = 0;
 int otemp = 0;
 int opres = 0;
+
+// vars for displaying on local LCD
+char lcd_temp[10];
 
 
 // vars for reporting to cosm
@@ -160,7 +165,6 @@ void send_eeprom_update() {
     Serial.println(change_eeprom.value);
     rf12_easySend(&change_eeprom, sizeof change_eeprom);
     rf12_easyPoll(); // Actually send the data
-    //delay(250);
 }
 
 char cmdbuf[12] = "";
@@ -175,24 +179,20 @@ void handleInput () {
         c = Serial.read();
         if (isAlpha(c)) {
             strncat(cmdbuf, (char *)&c, 1);
-            //Serial.println(cmdbuf);
         }
         if (c==',') {
             if (strcmp(cmdbuf, "emnl") == 0 || strcmp(cmdbuf, "emxl") == 0 ||
                 strcmp(cmdbuf, "emnr") == 0 || strcmp(cmdbuf, "emxr") == 0 ||
                 strcmp(cmdbuf, "gmin") == 0 || strcmp(cmdbuf, "gmax") == 0 ||
                 strcmp(cmdbuf, "wmin") == 0 || strcmp(cmdbuf, "wmax") == 0) {
-                //Serial.println("Command OK");
                 sprintf(change_eeprom.command, cmdbuf);
                 cmdOK=1;
             } else if (strcmp(cmdbuf, "gtst") == 0) {
-                       //Serial.println("Get settings command OK");
                        sprintf(change_eeprom.command, cmdbuf);
                        change_eeprom.value=0;
                        send_eeprom_update();
                        sprintf(cmdbuf, ""); sprintf(valbuf, ""); cmdOK=0;
                    } else {
-                       //Serial.println("");
                        showString(PSTR("\nIllegal command: "));
                        Serial.println(cmdbuf);
                        sprintf(cmdbuf, "");
@@ -208,8 +208,6 @@ void handleInput () {
                 showString(PSTR("\nIllegal sensor value: "));
                 Serial.println(sensorvalue);
             } else {
-                //Serial.print(" new sensor value: ");
-                //Serial.println(sensorvalue);
                 change_eeprom.value=sensorvalue;
                 send_eeprom_update();
             }
@@ -273,7 +271,7 @@ void loop () {
         payload* data = (payload*) rf12_data;
         switch (data->type)
 	{
-	    case 'e': 
+	    case 'e':   // Electricity data
                 {
                   showString(PSTR("e "));
                   Serial.print(data->actual);
@@ -295,17 +293,15 @@ void loop () {
                   Serial.print(data->maxB);
                   break;
                 }
-	    case 'g':
+	    case 'g':  // Gas data
                 {
                   showString(PSTR("g "));
                   Serial.print(data->actual);
 		  if ( gas_send == 1 ) {
                     gas_send = 0;
-                    //Serial.print("(1)");
 		    gas = 10;       // Start with 10L on first received g-line after sending
                   } else {
 		    gas = gas + 10; // Every g-line received from sensornode means 10L gas used
-                    //Serial.print("(0)");
                   }
                   showString(PSTR(" "));
                   Serial.print(data->rotations);
@@ -398,61 +394,59 @@ void loop () {
     
     // Send data for displaying on GLCD JeeNode & display selected data on local LCD
     if ( sendMetro.check() ) {
-        //lcd.clear();
         
-        glcd_send.box=0;
-        sprintf(glcd_send.box_title, "Verbruik W");
-        sprintf(glcd_send.box_data, " %4d", watt);
-        lcd.setCursor(0,0);
-        lcd.print(glcd_send.box_title); lcd.print(glcd_send.box_data);
-        rf12_easySend(&glcd_send, sizeof glcd_send);
+        // Send data to display on GLCD Jeenode
+        d_payload.type=1;  // display electricity data
+        d_payload.value=watt;
+        rf12_easySend(&d_payload, sizeof d_payload);
         rf12_easyPoll(); // Actually send the data
-
-        /* Disabled because inside temperature data is read locally and displayed
-         * directly by the GLCD node
-        delay(250);
-        glcd_send.box=4;
-        //sprintf(glcd_send.box_title, "Binnen C");
-        sprintf(glcd_send.box_title, "");
-        if (itemp > -1 || itemp < -9) {
-          sprintf(glcd_send.box_data, "%3d,%d", itemp/10, abs(itemp%10));
-        } else {
-          sprintf(glcd_send.box_data, "-%2d,%d", itemp/10, abs(itemp%10));
-        }
-        rf12_easySend(&glcd_send, sizeof glcd_send);
-        rf12_easyPoll(); // Actually send the data */
-        // Do display on local LCD
-        if (itemp > -1 || itemp < -9) {
-          sprintf(glcd_send.box_data, "%3d,%d", itemp/10, abs(itemp%10));
-        } else {
-          sprintf(glcd_send.box_data, "-%2d,%d", itemp/10, abs(itemp%10));
-        }
-        lcd.setCursor(9,1);
-        lcd.print(">"); lcd.print(glcd_send.box_data); lcd.print("C"); 
-
         
+        delay(100);
+        d_payload.type=2;  // display gas data
+        d_payload.value=gas;
+        rf12_easySend(&d_payload, sizeof d_payload);
+        rf12_easyPoll(); // Actually send the data
+        
+	/* Do not send inside temp, is GLCD local
+        delay(100);
+        d_payload.type=3;  // display inside temperature data
+        d_payload.value=itemp;
+        rf12_easySend(&d_payload, sizeof d_payload);
+        rf12_easyPoll(); // Actually send the data
+	*/
+        
+        delay(100);
+        d_payload.type=4;  // display outside temperature data
+        d_payload.value=otemp;
+        rf12_easySend(&d_payload, sizeof d_payload);
+        rf12_easyPoll(); // Actually send the data
+        
+        delay(100);
+        d_payload.type=5;  // display outside pressure data
+        d_payload.value=opres;
+        rf12_easySend(&d_payload, sizeof d_payload);
+        rf12_easyPoll(); // Actually send the data
+        
+        // Display data on local LCD
+        lcd.setCursor(8,0); lcd.print("Verbruik"); 
+        lcd.setCursor(9,1); lcd.print(watt); lcd.print(" W ");
 
-        delay(250);
-        glcd_send.box=2;
-        //sprintf(glcd_send.box_title, "Buiten C");
-        sprintf(glcd_send.box_title, "");
         if (otemp > -1 || otemp < -9) {
-          sprintf(glcd_send.box_data, "%3d,%d", otemp/10, abs(otemp%10));
+          sprintf(lcd_temp, "%3d,%d", otemp/10, abs(otemp%10));
         } else {
-          sprintf(glcd_send.box_data, "-%2d,%d", otemp/10, abs(otemp%10));
+          sprintf(lcd_temp, "-%2d,%d", otemp/10, abs(otemp%10));
+        }
+        lcd.setCursor(0,0);
+        lcd.print("<"); lcd.print(lcd_temp); lcd.print("C");
+ 
+        if (itemp > -1 || itemp < -9) {
+          sprintf(lcd_temp, "%3d,%d", itemp/10, abs(itemp%10));
+        } else {
+          sprintf(lcd_temp, "-%2d,%d", itemp/10, abs(itemp%10));
         }
         lcd.setCursor(0,1);
-        lcd.print("<"); lcd.print(glcd_send.box_data); lcd.print("C");
-        rf12_easySend(&glcd_send, sizeof glcd_send);
-        rf12_easyPoll(); // Actually send the data
-
-        delay(250);
-        glcd_send.box=3;
-        sprintf(glcd_send.box_title, "Barometer hPa");
-        sprintf(glcd_send.box_data, "%4d,%d", opres/10, opres%10);
-        rf12_easySend(&glcd_send, sizeof glcd_send);
-        rf12_easyPoll(); // Actually send the data
-   }
+        lcd.print(">"); lcd.print(lcd_temp); lcd.print("C"); 
+  }
     
     // Read outside temperature & pressure
     if ( sampleMetro.check() ) {
@@ -473,19 +467,6 @@ void loop () {
         showString(PSTR("p "));
         Serial.print(opres);
         showStringln(PSTR(" ")); // extra space at the end is needed
-        
-        sendpayload.type = 'o'; // type is outside temperature data
-        sendpayload.actual = (long) otemp;
-        sendpayload.rotations = 0;
-        rf12_easySend(&sendpayload, sizeof sendpayload);
-        rf12_easyPoll(); // Actually send the data
-        
-        delay(100);
-        sendpayload.type = 'p'; // type is pressure data
-        sendpayload.actual = (long) opres;
-        sendpayload.rotations = 0;
-        rf12_easySend(&sendpayload, sizeof sendpayload);
-        rf12_easyPoll(); // Actually send the data 
     }
 
     // Send data to cosm
