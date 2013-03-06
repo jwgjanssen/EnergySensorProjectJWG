@@ -5,7 +5,11 @@
 // Local sensors: - reflective photosensor for electricitymeter(2 x RPR-220)
 //                - reflective photosensor for gasmeter(1 x CNY70)
 // Receives:      - eeprom data (eeprom contains sensor trigger values) (from CentralNode)
-// Sends:         - current eeprom sensor trigger values (to CentralNode)
+// Sends:         - (e) electricity readings (to CentralNode)
+//                - (g) gas readings (to CentralNode)
+//                - (z) adjusted electricity sensor trigger values (to CentralNode)
+//                - (y) adjusted gas sensor trigger values (to CentralNode)
+//                - (s) current eeprom sensor trigger values (to CentralNode)
 // Other:         - 
 //
 // Author: Jos Janssen
@@ -20,6 +24,7 @@
 // 09sep2012    Jos     Included code for 8 second watchdog reset
 // 15feb2013    Jos     Added code to re-initialze the rf12 every one week to avoid hangup after a long time
 // 15feb2013    Jos     Changed sampleMetro from 5 to 2 ms
+// 04mar2013    Jos     Added code to update eeprom sensor trigger values once a week
 
 #include <JeeLib.h>
 #include <Metro.h>
@@ -45,20 +50,27 @@ Port gas_led (3);
 Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
 Metro sampleMetro = Metro(2);
 Metro wdtMetro = Metro(1000);
+Metro EeepromMetro = Metro(604800000);    // write mean measured electricitysensor trigger values to eeprom every 1 week
+Metro GeepromMetro = Metro(604800000);    // write mean measured gassensor trigger values to eeprom every 1 week
+//Metro EeepromMetro = Metro(120000);       // to test, now every 2 mins
+//Metro GeepromMetro = Metro(120000);       // to test, now every 2 mins
+
+// Variables read from eeprom
+int minLeft;
+int maxLeft;
+int minRight;
+int maxRight;
+int minGas;
+int maxGas;
 
 // Variables for the sensor readings
 boolean stateLeft = 0;
 boolean stateRight = 0;
 boolean stateGas = 0;
 
-int minLeft;
-int maxLeft;
-
-int minRight;
-int maxRight;
-
-int minGas;
-int maxGas;
+int lightLeft = 0;  // latest reading left electricity sensor
+int lightRight = 0; // latest reading right electricity sensor
+int lightGas = 0;   // latest reading gas sensor
 
 int mminLeft = 1024;
 int mmaxLeft = 0;
@@ -66,19 +78,12 @@ int mminRight = 1024;
 int mmaxRight = 0;
 int mminGas = 1024;
 int mmaxGas = 0;
-int nextMinLeft = 1024;
-int nextMaxLeft = 0;
-int nextMinRight = 1024;
-int nextMaxRight = 0;
-int nextMinGas = 1024;
-int nextMaxGas = 0;
-
-int lightLeft = 0;  // latest reading left electricity sensor
-int lightRight = 0; // latest reading right electricity sensor
-int lightGas = 0;   // latest reading gas sensor
-
-int e_margin = 20; // margin for determining peaks for electricity sensor readings
-int g_margin = 20; // margin for determining peaks for gas sensor readings
+int currMinLeft = 1024;
+int currMaxLeft = 0;
+int currMinRight = 1024;
+int currMaxRight = 0;
+int currMinGas = 1024;
+int currMaxGas = 0;
 
 // Variables for timing/counting
 int e_direction = 1;        // 1=forward(normal), -1=backward
@@ -123,6 +128,26 @@ char i;
 char b;
 int do_write = 0;
 int do_report = 0;
+
+typedef struct {
+  int e_minL, e_maxL;
+  int e_minR, e_maxR;
+} Eset;
+
+typedef struct {
+  int g_min, g_max;
+} Gset;
+
+Eset Evalues[10];
+Gset Gvalues[10];
+boolean do_save_Evalues = 0;
+boolean do_save_Gvalues = 0;
+int Ecounter;
+char Ei;
+int Gcounter;
+char Gi;
+int meanMinL, meanMaxL, meanMinR, meanMaxR;
+int meanMinG, meanMaxG;
 
 // Variables for wireless communication (sending sensor readings)
 struct { char type; long actual; long rotations; long rotationMs;
@@ -317,33 +342,31 @@ void loop() {
          lightRight=portRight.anaRead();
          lightGas=portGas.anaRead();
 
-         // to monitor changing peak sizes, we follow the peak size continuously
-         // the found peak size serves as the target (minus a small margin) for the next peak detection
+         // to monitor changing peak & valley sizes, we follow the sizes continuously
+         // the found sizes serve as the target for the next detection
+         
          // update minimum and maximum for the left sensor
-         if ( lightLeft > nextMaxLeft ) {
-             nextMaxLeft=lightLeft;
+         if ( lightLeft > currMaxLeft ) {
+             currMaxLeft=lightLeft;
          }  
-         // we also do this for the valley
-         if ( lightLeft < nextMinLeft ) {
-             nextMinLeft=lightLeft;
+         if ( lightLeft < currMinLeft ) {
+             currMinLeft=lightLeft;
          }
           
-         // and the same for the right sensor
          // update minimum and maximum for the right sensor
-         if ( lightRight > nextMaxRight ) {
-             nextMaxRight=lightRight;
+         if ( lightRight > currMaxRight ) {
+             currMaxRight=lightRight;
          }  
-         if ( lightRight < nextMinRight ) {
-             nextMinRight=lightRight;
+         if ( lightRight < currMinRight ) {
+             currMinRight=lightRight;
          }
 
-         // and the same for the gas sensor
          // update minimum and maximum for the gas sensor
-         if ( lightGas > nextMaxGas ) {
-             nextMaxGas=lightGas;
+         if ( lightGas > currMaxGas ) {
+             currMaxGas=lightGas;
          }  
-         if ( lightGas < nextMinGas ) {
-             nextMinGas=lightGas;
+         if ( lightGas < currMinGas ) {
+             currMinGas=lightGas;
          }
 
          //
@@ -351,7 +374,7 @@ void loop() {
          //   Normally the state = 0. When the painted mark on the disc is at the sensor, the state = 1.
          //   The mark is the least reflective part of the disc, giving the highest sensor value readout.
          //
-         if ( (stateLeft == 0) && (lightLeft > maxLeft - e_margin) ) {  // the mark is at the left sensor, light above threshold
+         if ( (stateLeft == 0) && (lightLeft > maxLeft) ) {  // the mark is at the left sensor, light above threshold
              stateLeft=1;
              #if DEBUG                    
                  Serial.println("L1");
@@ -405,32 +428,32 @@ void loop() {
                      e_onceDisplayed=0;
                  }
              }
-             mminLeft=nextMinLeft;  // going to minimum, reset minimum value of left sensor
-             nextMinLeft=1024;
-         } else if ( (stateLeft == 1) && (lightLeft < minLeft + e_margin) ) {  // the mark is not at the left sensor, light below threshold
+             mminLeft=currMinLeft;  // going to minimum, reset minimum value of left sensor
+             currMinLeft=1024;
+         } else if ( (stateLeft == 1) && (lightLeft < minLeft) ) {  // the mark is not at the left sensor, light below threshold
              stateLeft=0;
              #if DEBUG                    
                  Serial.println("L0");
              #endif
-             mmaxLeft=nextMaxLeft;  // going to a maximum, reset maximum value of left sensor
-             nextMaxLeft=0;
+             mmaxLeft=currMaxLeft;  // going to a maximum, reset maximum value of left sensor
+             currMaxLeft=0;
              e_onceDone=0; // reset e_onceDone in a minimum
          }
           
-         if ( (stateRight == 0) && (lightRight > maxRight - e_margin) ) {  // the mark is at the right sensor, light below threshold
+         if ( (stateRight == 0) && (lightRight > maxRight) ) {  // the mark is at the right sensor, light below threshold
              stateRight=1;
              #if DEBUG                    
                  Serial.println("R1");
              #endif
-             mminRight=nextMinRight;  // going to a minimum, reset minimum value of right sensor
-             nextMinRight=1024;
-         } else if ( (stateRight == 1) && (lightRight < minRight + e_margin) ) {  // the mark is not at the right sensor, light above threshold
+             mminRight=currMinRight;  // going to a minimum, reset minimum value of right sensor
+             currMinRight=1024;
+         } else if ( (stateRight == 1) && (lightRight < minRight) ) {  // the mark is not at the right sensor, light above threshold
              stateRight=0;
              #if DEBUG                    
                  Serial.println("R0");
              #endif
-             mmaxRight=nextMaxRight;  // going to a maximum, reset maximum value of right sensor
-             nextMaxRight=0;
+             mmaxRight=currMaxRight;  // going to a maximum, reset maximum value of right sensor
+             currMaxRight=0;
          }
          
          //
@@ -438,19 +461,25 @@ void loop() {
          //   Normally the state = 0. When the 0 with the little "mirror" is at the sensor, the state = 1.
          //   The mirror is the most reflective part of the counter, giving the lowest sensor value readout.
          //
-         if ( (stateGas == 0) && (lightGas < minGas + g_margin) ) {  //  the mirror is at the sensor, light below threshold
+         if ( (stateGas == 0) && (lightGas < minGas) ) {  //  the mirror is at the sensor, light below threshold
              stateGas=1;
-             mmaxGas=nextMaxGas;  // going to a maximum, reset maximum value of Gas sensor
-             nextMaxGas=0;
+             #if DEBUG                    
+                 Serial.println("G1");
+             #endif
+             mmaxGas=currMaxGas;  // going to a maximum, reset maximum value of Gas sensor
+             currMaxGas=0;
              // Set appropriate values only once in during stateGas = 1
              if (g_onceDone == 0) {
                  g_onceDone=1;
                  g_onceDisplayed=0;
              }
-         } else if ( (stateGas == 1) && (lightGas > maxGas - g_margin) ) {  // the mirror is not at the sensor, light above threshold
+         } else if ( (stateGas == 1) && (lightGas > maxGas) ) {  // the mirror is not at the sensor, light above threshold
              stateGas=0;
-             mminGas=nextMinGas;  // going to a minimum, reset minimum value of Gas sensor
-             nextMinGas=1024;
+             #if DEBUG                    
+                 Serial.println("G0");
+             #endif
+             mminGas=currMinGas;  // going to a minimum, reset minimum value of Gas sensor
+             currMinGas=1024;
              g_onceDone=0; // reset g_onceDone in a minimum
          }
          
@@ -496,6 +525,53 @@ void loop() {
         #endif
         e_onceDisplayed=1;
         rf12_easyPoll(); // Actually send the data
+        
+        if (do_save_Evalues) {
+          #if DEBUG
+            Serial.print("Enter do_save_Evalues "); Serial.println(Ecounter);
+          #endif
+          Evalues[Ecounter].e_minL=mminLeft;  Evalues[Ecounter].e_maxL=mmaxLeft;
+          Evalues[Ecounter].e_minR=mminRight; Evalues[Ecounter].e_maxR=mmaxRight;
+          Ecounter++;
+          if (Ecounter > 9) {
+            do_save_Evalues=0;
+            meanMinL=0; meanMaxL=0; meanMinR=0; meanMaxR=0;
+            for (Ei=0; Ei < 10; Ei++) {
+              meanMinL+=Evalues[Ei].e_minL; meanMaxL+=Evalues[Ei].e_maxL;
+              meanMinR+=Evalues[Ei].e_minR; meanMaxR+=Evalues[Ei].e_maxR;
+            }
+            meanMinL=meanMinL/10; meanMaxL=meanMaxL/10; meanMinR=meanMinR/10; meanMaxR=meanMaxR/10;
+            // fill all eeprom trigger values
+            wconfig.e_minL=meanMinL+150;
+            wconfig.e_maxL=meanMaxL-75;
+            wconfig.e_minR=meanMinR+150;
+            wconfig.e_maxR=meanMaxR-75;
+            wconfig.g_min=rconfig.g_min;
+            wconfig.g_max=rconfig.g_max;
+            wconfig.w_min=rconfig.w_min;
+            wconfig.w_max=rconfig.w_max;
+            write_eeprom();
+            read_eeprom();
+            // Send the adjusted electricity sensor trigger values
+            payload.type='z'; // type is electricity sensor trigger values
+            payload.minA=wconfig.e_minL; payload.maxA=wconfig.e_maxL;
+            payload.minB=wconfig.e_minR; payload.maxB=wconfig.e_maxR;
+            rf12_easySend(&payload, sizeof payload);
+            #if DEBUG                    
+              Serial.print("z ");
+              Serial.print("Adjusted electricity sensor trigger values: L:");
+              Serial.print(wconfig.e_minL);
+              Serial.print("->");
+              Serial.print(wconfig.e_maxL);
+              Serial.print(" R:");
+              Serial.print(wconfig.e_minR);
+              Serial.print("->");
+              Serial.print(wconfig.e_maxR);
+              Serial.println("");
+            #endif
+            rf12_easyPoll(); // Actually send the data
+          }
+        }
     }
     
     
@@ -525,6 +601,46 @@ void loop() {
         #endif
         g_onceDisplayed=1;
         rf12_easyPoll(); // Actually send the data
+        
+        if (do_save_Gvalues) {
+          #if DEBUG
+            Serial.print("Enter do_save_Gvalues "); Serial.println(Gcounter);
+          #endif
+          Gvalues[Gcounter].g_min=mminGas;  Gvalues[Gcounter].g_max=mmaxGas;
+          Gcounter++;
+          if (Gcounter > 9) {
+            do_save_Gvalues=0;
+            meanMinG=0; meanMaxG=0;
+            for (Gi=0; Gi < 10; Gi++) {
+              meanMinG+=Gvalues[Gi].g_min; meanMaxG+=Gvalues[Gi].g_max;
+            }
+            meanMinG=meanMinG/10; meanMaxG=meanMaxG/10;
+            // fill all eeprom trigger values
+            wconfig.e_minL=rconfig.e_minL;
+            wconfig.e_maxL=rconfig.e_maxL;
+            wconfig.e_minR=rconfig.e_minR;
+            wconfig.e_maxR=rconfig.e_maxR;
+            wconfig.g_min=meanMinG+75;
+            wconfig.g_max=meanMaxG-150;
+            wconfig.w_min=rconfig.w_min;
+            wconfig.w_max=rconfig.w_max;
+            write_eeprom();
+            read_eeprom();
+            // Send the adjusted gas sensor trigger values
+            payload.type='y'; // type is gas sensor trigger values
+            payload.minA=wconfig.g_min; payload.maxA=wconfig.g_max;
+            rf12_easySend(&payload, sizeof payload);
+            #if DEBUG                    
+              Serial.print("y ");
+              Serial.print("Adjusted gas sensor trigger values: ");
+              Serial.print(wconfig.g_min);
+              Serial.print("->");
+              Serial.print(wconfig.g_max);
+              Serial.println("");
+            #endif
+            rf12_easyPoll(); // Actually send the data
+          }
+        }
     }
     
     // receive command for changing eeprom values or report settings
@@ -548,6 +664,16 @@ void loop() {
         
     if ( wdtMetro.check() ) {
       if (UNO) wdt_reset();
+    }
+    
+    if ( EeepromMetro.check() ) {
+      do_save_Evalues=1;
+      Ecounter=0;
+    }
+    
+    if ( GeepromMetro.check() ) {
+      do_save_Gvalues=1;
+      Gcounter=0;
     }
 }
 
