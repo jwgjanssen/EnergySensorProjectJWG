@@ -1,9 +1,13 @@
-SensorNode
-----------
-Node connected to the sensors on the electricity- and gas-meter.
-Node address: 868 Mhz, net group 5, node 3.
-Local sensors: - reflective photosensor for electricitymeter(2 x RPR-220)
-               - reflective photosensor for gasmeter(1 x CNY70)
-Receives:      - eeprom data (eeprom contains sensor trigger values) (from CentralNode)
-Sends:         - current eeprom sensor trigger values (to CentralNode)
-Other:         - 
+// SensorNode
+// ----------
+// Node connected to the sensors on the electricity- and gas-meter.
+// Node address: 868 Mhz, net group 5, node 3.
+// Local sensors: - reflective photosensor for electricitymeter(2 x RPR-220)
+//                - reflective photosensor for gasmeter(1 x CNY70)
+// Receives:      - eeprom data (eeprom contains sensor trigger values) (from CentralNode)
+// Sends:         - (e) electricity readings (to CentralNode)
+//                - (g) gas readings (to CentralNode)
+//                - (x) current eeprom sensor trigger values (to CentralNode)
+//                - (y) adjusted gas sensor trigger values (to CentralNode)
+//                - (z) adjusted electricity sensor trigger values (to CentralNode)
+// Other:         - 
