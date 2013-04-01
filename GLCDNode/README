@@ -1,13 +1,13 @@
-GLCDNode
---------
-Node connected to the 64x128 graphic LCD.
-Node address: 868 Mhz, net group 5, node 4.
-Local sensors: - inside temperature (DS18B20)
-               - microswitch (to light up GLCD)
-Receives:      - (1) electricity actual usage (from CentralNode)
-               - (2) gas actual usage (from CentralNode)
-               - (4) outside temperature (from CentralNode)
-               - (5) outside pressure (from CentralNode)
-Sends:         - (i) inside temperature (to CentralNode)
-Other:         - 64x128 graphic LCD (to display electricity usage,
-                 inside/outside temperature & barometric pressure)
+// GLCDNode
+// --------
+// Node connected to the 64x128 graphic LCD.
+// Node address: 868 Mhz, net group 5, node 4.
+// Local sensors: - inside temperature (DS18B20)
+//                - microswitch (to light up GLCD)
+// Receives:      - (1) electricity actual usage (from CentralNode)
+//                - (2) gas actual usage (from CentralNode)
+//                - (4) outside temperature (from CentralNode)
+//                - (5) outside pressure (from CentralNode)
+// Sends:         - (i) inside temperature (to CentralNode)
+// Other:         - 64x128 graphic LCD (to display electricity usage,
+//                  inside/outside temperature & barometric pressure)
