@@ -1,0 +1,9 @@
+// SolarNode
+// ----------
+// Node connected to a Mastervolt Soladin 600 inverter for the solar panels.
+// Node address: 868 Mhz, net group 5, node 5.
+// Local sensors: - serial connection to communicationsport of the Mastervolt Soladin 600
+// Receives:      - 
+// Sends:         - (s) actual & total daily production, and inverter runtime (to CentralNode)
+// Other:         - 64x128 graphic LCD (to solar inverter data)
+
