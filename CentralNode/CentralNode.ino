@@ -56,6 +56,7 @@
 // 08mar2013    Jos     Added hours & mins to struct for sending time to GLCDNode
 // 15mar2013    Jos     Added wait-loop in getting time from internet using ether.browseUrl()
 // 19mar2013    Jos     Optimized communication structures for rf12
+// 29mar2013    Jos     Removed code for getting date & time from api.cosm.com (did not work reliably)
 // 30mar2013    Jos     Added code for getting date & time from DCF77 time module
 
 
