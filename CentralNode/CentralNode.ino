@@ -4,16 +4,19 @@
 // Node address: 868 Mhz, net group 5, node 30.
 // Local sensors: - outside temperature (DS18B20)
 //                - barometric pressure (BMP085)
+//                - DCF77 time module
 // Receives:      - (e) electricity readings (from SensorNode)
 //                - (g) gas readings (from SensorNode)
 //                - (i) inside temperature (from GLCDNode)
-//                - (z) adjusted electricity sensor trigger values (from SensorNode)
+//                - (s) solar readings (from SolarNode)
+//                - (x) current eeprom sensor trigger values (from SensorNode)
 //                - (y) adjusted gas sensor trigger values (from SensorNode)
-//                - (s) current eeprom sensor trigger values (from SensorNode)
+//                - (z) adjusted electricity sensor trigger values (from SensorNode)
 // Sends:         - (1) electricity actual usage (to GLCDNode)
-//                - (2) gas actual usage (to GLCDNode)
+//                - (2) solar actual production (to GLCDNode)
 //                - (4) outside temperature (to GLCDNode)
 //                - (5) outside pressure (to GLCDNode)
+//                - local time with every packet send (to GLCDNode)
 //                - all values to USB for webpage
 //                - all values to cosm.com via Ethercard
 // Other:         - 2x16 LCD display (to display electricity usage & outside temperature)
@@ -49,6 +52,12 @@
 // 04mar2013    Jos     Used showString(PSTR("...")) for several long strings to save RAM space
 // 06mar2013    Jos     Changed the way data is send to GLCDNode
 // 06mar2013    Jos     Using PSTR("...") in stash.print does not work
+// 08mar2013    Jos     Added code for getting date & time from api.cosm.com
+// 08mar2013    Jos     Added hours & mins to struct for sending time to GLCDNode
+// 15mar2013    Jos     Added wait-loop in getting time from internet using ether.browseUrl()
+// 19mar2013    Jos     Optimized communication structures for rf12
+// 30mar2013    Jos     Added code for getting date & time from DCF77 time module
+
 
 #define DEBUG 0        // Set to 1 to activate debug code
 #define UNO 1          // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
@@ -60,11 +69,16 @@
 #include <DallasTemperature.h>
 #include <PortsBMP085.h>
 #include <PortsLCD.h>
+#include <Wire.h>
+#include "DCF77Clock.h"
+//#include <RTClib.h>
 #include "cosm_settings.h"  // contains cosm website, FEEDID & APIKEY :
 			    //   char website[] PROGMEM = "api.cosm.com";
 			    //   #define FEEDID "your-own-id"
 			    //   #define APIKEY "your-own-key"
+
 // Crash protection: Jeenode resets itself after x seconds of none activity (set in WDTO_xS)
+#define UNO 1          // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
 #if UNO
 #include <avr/wdt.h>  // All Jeenodes have the UNO bootloader
 ISR(WDT_vect) { 
@@ -72,16 +86,20 @@ ISR(WDT_vect) {
 }
 #endif
 
+// **** START of var declarations ****
+
 // **** Ethercard (does not use a JeeNode Port)
 // ethernet interface mac address, must be unique on the LAN
 static byte mymac[] = { 0x58,0x17,0xAD,0x32,0x0A,0x00 };
-byte Ethernet::buffer[400]; // 400 works! 650 & 700 give strange effects (serial does not seem to work....)
-uint32_t timer;
+byte Ethernet::buffer[375]; // 400 works! 650 & 700 give strange effects (serial does not seem to work....)
 Stash stash;
 
 // **** JeeNode Port 1: 2x16 LCD
 PortI2C myI2C (1);
 LiquidCrystalI2C lcd (myI2C);
+
+// **** JeeNode Port 2: DCF77 module
+DCF77Clock dcf(2, 0, false);  // (DCF77 module JeeNode DIO port, Blink-led JeeNode DIO Port (0=no blink-led), DCF77 signal inverted?)
 
 // *****JeeNode Port 3: BMP085 temperature & pressure
 PortI2C three (3);
@@ -97,36 +115,49 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
 
+// timers
 Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
-Metro sendMetro = Metro(30500);
-Metro sampleMetro = Metro(60500);
-Metro cosmMetro = Metro(60000);
-Metro wdtMetro = Metro(1000);
+Metro sendMetro = Metro(30500);          // send data to GLCDNode every 30.5 sec
+Metro sampleMetro = Metro(300000);       // sample temperature & pressure every 5 min
+Metro cosmMetro = Metro(60000);          // send data to Cosm every 60 sec
+Metro wdtMetro = Metro(1000);            // watchdog timer reset every 1 sec
+Metro dcf77Metro = Metro(500);           // read time every 500ms
 
-typedef struct { char type; long actual; long rotations; long rotationMs;
+// structures for rf12 communication
+typedef struct { char type;
+        	 long var1;
+		 long var2;
+		 long var3;
+} s_payload_t;  // Sensor data payload, size = 13 bytes
+s_payload_t s_data;
+
+typedef struct { char type;
                  int minA; int maxA; int minB; int maxB;
                  int minC; int maxC; int minD; int maxD;
-} payload;
+} x_payload_t;  // Status data payload, size = 17 bytes
+x_payload_t x_data;
 
-struct { char type; long actual; long rotations; long rotationMs;
-                 int minA; int maxA; int minB; int maxB;
-                 int minC; int maxC; int minD; int maxD;
-} sendpayload;
+typedef struct {  byte type;
+                  int value;
+                  byte hours, mins;
+} d_payload_t;  // Display data payload, size = 5 bytes
+d_payload_t d_data;
 
-struct {
-  byte type;
-  int value;
-} d_payload;
+typedef struct { char command[5];
+                 int value;
+} eeprom_command_t;  // EEprom command payload, size = 7 bytes
+eeprom_command_t change_eeprom;
        
+// vars for measurement
 int watt = 0;
 int gas = 0;
 int itemp = 0;
 int otemp = 0;
 int opres = 0;
+int swatt = 0;
 
 // vars for displaying on local LCD
 char lcd_temp[10];
-
 
 // vars for reporting to cosm
 int watt_set = 0;
@@ -135,28 +166,46 @@ int gas_send = 0;	// Is gas send to cosm ?
 int itemp_set = 0;
 int otemp_set = 0;
 int opres_set = 0;
+int swatt_set = 0;
 float itemp_float;
 float otemp_float;
 float opres_float;
 
+// vars for handling eeprom commands
+char cmdbuf[12] = "";
+char valbuf[5] = "";
+int cmdOK = 0;
+
+// vars for DCF77 time measurement
+struct Dcf77Time dt = { 0 };
+uint8_t curMin;
+
+// **** END of var declarations ****
+
+/*
+int freeRam () {
+  extern int __heap_start, *__brkval; 
+  int v; 
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
+}
+*/
+
 void showString (PGM_P s) {
-        char c;
-        while ((c = pgm_read_byte(s++)) != 0)
-            Serial.print(c);
+  char c;
+  
+  while ((c = pgm_read_byte(s++)) != 0)
+    Serial.print(c);
 }
-    
+
+ 
 void showStringln (PGM_P s) {
-        char c;
-        while ((c = pgm_read_byte(s++)) != 0)
-            Serial.print(c);
-        Serial.println();
+  char c;
+  
+  while ((c = pgm_read_byte(s++)) != 0)
+    Serial.print(c);
+  Serial.println();
 }
-    
-typedef struct {
-  char command[5];
-  int value;
-} eeprom_command;
-eeprom_command change_eeprom;
+
 
 void send_eeprom_update() {
     showString(PSTR("Sending: "));
@@ -168,9 +217,6 @@ void send_eeprom_update() {
     rf12_easyPoll(); // Actually send the data
 }
 
-char cmdbuf[12] = "";
-char valbuf[5] = "";
-int cmdOK = 0;
 
 void handleInput () {
     int c;
@@ -218,6 +264,40 @@ void handleInput () {
 }
 
 
+void readTempPres() {
+  sensors.requestTemperatures(); // Send the command to get temperatures
+  otemp=(int) (10*sensors.getTempCByIndex(0));
+  otemp_float=(float)otemp/10;
+  otemp_set = 1;
+  showString(PSTR("o "));
+  Serial.print(otemp);
+  showStringln(PSTR(" ")); // extra space at the end is needed
+        
+  psensor.measure(BMP085::TEMP);
+  psensor.measure(BMP085::PRES);
+  psensor.calculate(bmptemp, bmppres);
+  opres=(int) (bmppres/10);
+  opres_float=(float)opres/10;
+  opres_set = 1;
+  showString(PSTR("p "));
+  Serial.print(opres);
+  showStringln(PSTR(" ")); // extra space at the end is needed
+}
+
+
+void sendTime() {
+  s_data.type='t';
+  s_data.var1=dt.hour;
+  s_data.var2=dt.min;
+  Serial.print("t ");
+  Serial.print(dt.hour); Serial.print(":"); if (dt.min < 10) Serial.print("0"); Serial.print(dt.min); Serial.print("  ");
+  Serial.print(dt.day); Serial.print("-"); Serial.print(dt.month); Serial.print("-20"); Serial.print(dt.year);
+  Serial.println();
+  //rf12_easySend(&s_data, sizeof s_data);
+  //rf12_easyPoll(); // Actually send the data
+}
+
+
 void init_rf12 () {
     rf12_initialize(30, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 30
     rf12_easyInit(0); // Send interval = 0 sec (=immediate).
@@ -255,10 +335,12 @@ void setup () {
     psensor.getCalibData(); // Get BMP085 calibration data
     // INIT port 4
     sensors.begin();        // DS18B20 default precision 12 bit.
-    
+    dcf.init();
+
     #if UNO
       wdt_enable(WDTO_8S);  // set timeout to 8 seconds
     #endif
+    readTempPres();
 }
 
 void loop () {
@@ -266,166 +348,186 @@ void loop () {
     if ( rf12ResetMetro.check() ) {
          init_rf12();
     }
+
     ether.packetLoop(ether.packetReceive());
 
-    if (rf12_recvDone() && rf12_crc == 0 && rf12_len == sizeof (payload)) {
-        payload* data = (payload*) rf12_data;
-        switch (data->type)
+    if (rf12_recvDone() && rf12_crc == 0) {
+      if (rf12_len == sizeof (s_payload_t)) {
+        s_data = *(s_payload_t*) rf12_data;
+        switch (s_data.type)
 	{
 	    case 'e':   // Electricity data
                 {
                   showString(PSTR("e "));
-                  Serial.print(data->actual);
-                  watt = (int)data->actual;
+                  Serial.print(s_data.var1);
+                  watt = (int)s_data.var1;
 		  watt_set = 1;
                   showString(PSTR(" "));
-                  Serial.print(data->rotations);
-                  showString(PSTR(" "));
-                  showString(PSTR("time="));
-                  Serial.print(data->rotationMs);
-                  showString(PSTR(" ms"));
-                  showString(PSTR("  measured min-max: L:"));
-                  Serial.print(data->minA);
-                  showString(PSTR("->"));
-                  Serial.print(data->maxA);
-                  showString(PSTR(", R:"));
-                  Serial.print(data->minB);
-                  showString(PSTR("->"));
-                  Serial.print(data->maxB);
+                  Serial.print(s_data.var2);
                   break;
                 }
 	    case 'g':  // Gas data
                 {
                   showString(PSTR("g "));
-                  Serial.print(data->actual);
+                  Serial.print(s_data.var1);
 		  if ( gas_send == 1 ) {
                     gas_send = 0;
 		    gas = 10;       // Start with 10L on first received g-line after sending
                   } else {
-		    gas = gas + 10; // Every g-line received from sensornode means 10L gas used
+		    gas = gas + 10; // Every g-line received from sensornode = 10L gas used
+                                    //   Is reset when send to COSM
                   }
                   showString(PSTR(" "));
-                  Serial.print(data->rotations);
-                  showString(PSTR("  measured min-max: "));
-                  Serial.print(data->minC);
-                  showString(PSTR("->"));
-                  Serial.print(data->maxC);
-                  break;
+                  Serial.print(s_data.var2);
+                 break;
                 }
-            case 'i':  // inside temperature
+            case 'i':  // Inside temperature
                 {
                   showString(PSTR("i "));
-                  Serial.print(data->actual);
-                  itemp=(int)data->actual;
-                  itemp_float=(float)data->actual/10;
+                  Serial.print(s_data.var1);
+                  itemp=(int)s_data.var1;
+                  itemp_float=(float)s_data.var1/10;
                   itemp_set = 1;
                   showString(PSTR(" "));
                   break;
                 }
-            /* case 'o':  // outside temperature
+            case 's':  // Solar data
+                {
+                  showString(PSTR("s "));
+                  Serial.print(s_data.var1);
+                  swatt = (int)s_data.var1;
+		  swatt_set = 1;
+                  showString(PSTR(" "));
+                  Serial.print(s_data.var2);
+                  showString(PSTR(" "));
+                  Serial.print(s_data.var3);
+                  break;
+                }
+            /*case 't':  // Time data (disabled, sensor is local, so no data to receive from rf12)
+                {
+                  showString(PSTR("t "));
+                  Serial.print(s_data.var1);showString(PSTR(":"));Serial.print(s_data.var2);
+                  d_data.hours=(byte)s_data.var1; d_data.mins=(byte)s_data.var2;
+                  showString(PSTR(" "));
+                  break;
+                }*/
+            /* case 'o':  // Outside temperature (disabled, sensor is local, so no data to receive from rf12)
                 {
                   showString(PSTR("o "));
-                  Serial.print(data->actual);
-                  otemp=(int)data->actual;
+                  Serial.print(s_data.var1);
+                  otemp=(int)s_data.var1;
                   showString(PSTR(" "));
                   break;
                 } */
-            /* case 'p':  // outside pressure
+            /* case 'p':  // Outside pressure (disabled, sensor is local, so no data to receive from rf12)
                 {
                   showString(PSTR("p "));
-                  Serial.print(data->actual);
-                  opres=(int)data->actual;
+                  Serial.print(s_data.var1);
+                  opres=(int)s_data.var1;
                   showString(PSTR(" ")); // extra space at the end is needed
                   break;
                 } */
-       	    case 's':  // display sensor settings
+	    default:
+		// You can use the default case.
+		showString(PSTR("Wrong measurement payload type!"));
+                break;
+	}
+        if (RF12_WANTS_ACK) {
+            rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+        }
+        Serial.println("");
+      } else if (rf12_len == sizeof (x_payload_t)) {
+        x_data = *(x_payload_t*) rf12_data;
+        switch (x_data.type)
+	{
+       	    case 'x':  // display sensor settings
                 {
-                  showString(PSTR("s "));
+                  showString(PSTR("x "));
                   showString(PSTR("min-max: L:"));
-                  Serial.print(data->minA);
+                  Serial.print(x_data.minA);
                   showString(PSTR("->"));
-                  Serial.print(data->maxA);
+                  Serial.print(x_data.maxA);
                   showString(PSTR(", R:"));
-                  Serial.print(data->minB);
+                  Serial.print(x_data.minB);
                   showString(PSTR("->"));
-                  Serial.print(data->maxB);
+                  Serial.print(x_data.maxB);
                   showString(PSTR(", G:"));
-                  Serial.print(data->minC);
+                  Serial.print(x_data.minC);
                   showString(PSTR("->"));
-                  Serial.print(data->maxC);
+                  Serial.print(x_data.maxC);
                   showString(PSTR(", W:"));
-                  Serial.print(data->minD);
+                  Serial.print(x_data.minD);
                   showString(PSTR("->"));
-                  Serial.print(data->maxD);
+                  Serial.print(x_data.maxD);
                   break;
                 }
        	    case 'y':  // display adjusted gas sensor trigger values
                 {
                   showString(PSTR("y "));
                   showString(PSTR("Adjusted gas sensor trigger values: "));
-                  Serial.print(data->minA);
+                  Serial.print(x_data.minA);
                   showString(PSTR("->"));
-                  Serial.print(data->maxA);
+                  Serial.print(x_data.maxA);
                   break;
                 }
        	    case 'z':  // display adjusted gas sensor trigger values
                 {
                   showString(PSTR("z "));
                   showString(PSTR("Adjusted electricity sensor trigger values: L:"));
-                  Serial.print(data->minA);
+                  Serial.print(x_data.minA);
                   showString(PSTR("->"));
-                  Serial.print(data->maxA);
+                  Serial.print(x_data.maxA);
                   showString(PSTR(" R:"));
-                  Serial.print(data->minB);
+                  Serial.print(x_data.minB);
                   showString(PSTR("->"));
-                  Serial.print(data->maxB);
+                  Serial.print(x_data.maxB);
                   break;
                 }
 	    default:
 		// You can use the default case.
-		showString(PSTR("Wrong payload type!"));
+		showString(PSTR("Wrong status payload type!"));
                 break;
 	}
         if (RF12_WANTS_ACK) {
-            //Serial.print("\t(-> ack)");
             rf12_sendStart(RF12_ACK_REPLY, 0, 0);
         }
         Serial.println("");
+      }
     }
-    
+
+
     // Send data for displaying on GLCD JeeNode & display selected data on local LCD
     if ( sendMetro.check() ) {
-        
         // Send data to display on GLCD Jeenode
-        d_payload.type=1;  // display electricity data
-        d_payload.value=watt;
-        rf12_easySend(&d_payload, sizeof d_payload);
+        d_data.type=1;  // display electricity data
+        d_data.value=watt;
+        rf12_easySend(&d_data, sizeof d_data);
         rf12_easyPoll(); // Actually send the data
         
         delay(100);
-        d_payload.type=2;  // display gas data
-        d_payload.value=gas;
-        rf12_easySend(&d_payload, sizeof d_payload);
+        d_data.type=2;  // display solar data
+        d_data.value=swatt;
+        rf12_easySend(&d_data, sizeof d_data);
         rf12_easyPoll(); // Actually send the data
         
-	/* Do not send inside temp, is GLCD local
+	/* Do not send inside temp, is GLCDNode local
         delay(100);
-        d_payload.type=3;  // display inside temperature data
-        d_payload.value=itemp;
-        rf12_easySend(&d_payload, sizeof d_payload);
+        d_data.type=3;  // display inside temperature data
+        d_data.value=itemp;
+        rf12_easySend(&d_data, sizeof d_data);
         rf12_easyPoll(); // Actually send the data
 	*/
         
         delay(100);
-        d_payload.type=4;  // display outside temperature data
-        d_payload.value=otemp;
-        rf12_easySend(&d_payload, sizeof d_payload);
+        d_data.type=4;  // display outside temperature data
+        d_data.value=otemp;
+        rf12_easySend(&d_data, sizeof d_data);
         rf12_easyPoll(); // Actually send the data
         
         delay(100);
-        d_payload.type=5;  // display outside pressure data
-        d_payload.value=opres;
-        rf12_easySend(&d_payload, sizeof d_payload);
+        d_data.type=5;  // display outside pressure data
+        d_data.value=opres;
+        rf12_easySend(&d_data, sizeof d_data);
         rf12_easyPoll(); // Actually send the data
         
         // Display data on local LCD
@@ -451,23 +553,7 @@ void loop () {
     
     // Read outside temperature & pressure
     if ( sampleMetro.check() ) {
-        sensors.requestTemperatures(); // Send the command to get temperatures
-        otemp=(int) (10*sensors.getTempCByIndex(0));
-	otemp_float=(float)otemp/10;
-        otemp_set = 1;
-        showString(PSTR("o "));
-        Serial.print(otemp);
-        showStringln(PSTR(" ")); // extra space at the end is needed
-        
-        psensor.measure(BMP085::TEMP);
-        psensor.measure(BMP085::PRES);
-        psensor.calculate(bmptemp, bmppres);
-        opres=(int) (bmppres/10);
-	opres_float=(float)opres/10;
-        opres_set = 1;
-        showString(PSTR("p "));
-        Serial.print(opres);
-        showStringln(PSTR(" ")); // extra space at the end is needed
+      readTempPres();
     }
 
     // Send data to cosm
@@ -490,7 +576,6 @@ void loop () {
             gas_send = 1;
 	    gas = 0;
         }
-
         if(itemp_set) {
             stash.print("Inside,");stash.println(itemp_float);
             #if DEBUG
@@ -512,6 +597,13 @@ void loop () {
             #endif
             opres_set = 0;
         }
+        if(swatt_set) {
+            stash.print("SolarOutput,");stash.println(swatt);
+            #if DEBUG
+            showString(PSTR("Send s  "));Serial.println(swatt);
+            #endif
+            swatt_set = 0;
+        }
         stash.save();
     
         // generate the header with payload - note that the stash size is used,
@@ -524,8 +616,17 @@ void loop () {
                             "$H"),
                 website, PSTR(FEEDID), website, PSTR(APIKEY), stash.size(), sd);
 
-        // send the packet - this also releases all stash buffers once done
-        ether.tcpSend();
+        ether.tcpSend();  // send the packet - this also releases all stash buffers once done
+        //Serial.println(freeRam());
+    }
+    
+    if ( dcf77Metro.check() ) {
+      dcf.getTime(dt);
+      if(dt.min != curMin) {
+        d_data.hours=dt.hour; d_data.mins=dt.min;
+        sendTime();
+      }
+      curMin = dt.min;
     }
     
     if ( wdtMetro.check() ) {
