@@ -1,32 +1,36 @@
-CentralNode
------------
-Node connected to the computer via USB.
-Node address: 868 Mhz, net group 5, node 30.
-Local sensors: - outside temperature (DS18B20)
-               - barometric pressure (BMP085)
-Receives:      - (e) electricity readings (from SensorNode)
-               - (g) gas readings (from SensorNode)
-               - (i) inside temperature (from GLCDNode)
-               - (z) adjusted electricity sensor trigger values (from SensorNode)
-               - (y) adjusted gas sensor trigger values (from SensorNode)
-               - (s) current eeprom sensor trigger values (from SensorNode)
-Sends:         - (1) electricity actual usage (to GLCDNode)
-               - (2) gas actual usage (to GLCDNode)
-               - (4) outside temperature (to GLCDNode)
-               - (5) outside pressure (to GLCDNode)
-               - all values to USB for webpage
-               - all values to cosm.com via Ethercard
-Other:         - 2x16 LCD display (to display electricity usage & outside temperature)
-	       - Uses an Ethercard to send readings to cosm.com
-	       - commands to get/set eeprom sensor settings of the SensorNode:
-			(NOTE: get/set is possible via the serial interface of the Arduino IDE)
-			gtst,.		get/display all the sensor min and max settings
-			emnl,<value>.	set minimum trigger of left electricity sensor to <value>
-			emxl,<value>.	set maximum trigger of left electricity sensor to <value>
-			emnr,<value>.	set minimum trigger of right electricity sensor to <value>
-			emxr,<value>.	set maximum trigger of right electricity sensor to <value>
-			gmin,<value>.	set minimum trigger of gas sensor to <value>
-			gmax,<value>.	set maximum trigger of gas sensor to <value>
-			wmin,<value>.	set minimum trigger of water sensor to <value> (Not used yet)
-			wmax,<value>.	set maximum trigger of water sensor to <value> (Not used yet)
-				accepted values for <value> = 1 -> 1023
+// CentralNode
+// -----------
+// Node connected to the computer via USB.
+// Node address: 868 Mhz, net group 5, node 30.
+// Local sensors: - outside temperature (DS18B20)
+//                - barometric pressure (BMP085)
+//                - DCF77 time module
+// Receives:      - (e) electricity readings (from SensorNode)
+//                - (g) gas readings (from SensorNode)
+//                - (i) inside temperature (from GLCDNode)
+//                - (s) solar readings (from SolarNode)
+//                - (x) current eeprom sensor trigger values (from SensorNode)
+//                - (y) adjusted gas sensor trigger values (from SensorNode)
+//                - (z) adjusted electricity sensor trigger values (from SensorNode)
+// Sends:         - (1) electricity actual usage (to GLCDNode)
+//                - (2) solar actual production (to GLCDNode)
+//                - (4) outside temperature (to GLCDNode)
+//                - (5) outside pressure (to GLCDNode)
+//                - local time with every packet send (to GLCDNode)
+//                - all values to USB for webpage
+//                - all values to cosm.com via Ethercard
+// Other:         - 2x16 LCD display (to display electricity usage & outside temperature)
+//                - Uses an Ethercard to send readings to cosm.com
+//		  - commands to get/set eeprom sensor settings of the SensorNode:
+//			(NOTE: get/set is possible via the serial interface of the Arduino IDE)
+//			gtst,.		get/display all the sensor min and max settings
+//			emnl,<value>.	set minimum trigger of left electricity sensor to <value>
+//			emxl,<value>.	set maximum trigger of left electricity sensor to <value>
+//			emnr,<value>.	set minimum trigger of right electricity sensor to <value>
+//			emxr,<value>.	set maximum trigger of right electricity sensor to <value>
+//			gmin,<value>.	set minimum trigger of gas sensor to <value>
+//			gmax,<value>.	set maximum trigger of gas sensor to <value>
+//			wmin,<value>.	set minimum trigger of water sensor to <value> (Not used yet)
+//			wmax,<value>.	set maximum trigger of water sensor to <value> (Not used yet)
+//				accepted values for <value> = 1 -> 1023
+
