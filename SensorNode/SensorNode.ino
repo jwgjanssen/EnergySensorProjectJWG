@@ -7,9 +7,9 @@
 // Receives:      - eeprom data (eeprom contains sensor trigger values) (from CentralNode)
 // Sends:         - (e) electricity readings (to CentralNode)
 //                - (g) gas readings (to CentralNode)
-//                - (z) adjusted electricity sensor trigger values (to CentralNode)
+//                - (x) current eeprom sensor trigger values (to CentralNode)
 //                - (y) adjusted gas sensor trigger values (to CentralNode)
-//                - (s) current eeprom sensor trigger values (to CentralNode)
+//                - (z) adjusted electricity sensor trigger values (to CentralNode)
 // Other:         - 
 //
 // Author: Jos Janssen
@@ -25,6 +25,7 @@
 // 15feb2013    Jos     Added code to re-initialze the rf12 every one week to avoid hangup after a long time
 // 15feb2013    Jos     Changed sampleMetro from 5 to 2 ms
 // 04mar2013    Jos     Added code to update eeprom sensor trigger values once a week
+// 19mar2013    Jos     Optimized communication structures for rf12
 
 #include <JeeLib.h>
 #include <Metro.h>
@@ -40,22 +41,44 @@ ISR(WDT_vect) { Sleepy::watchdogEvent(); }
 
 #define SENSOR_EEPROM_ADDR 0x60  //96 = 0x60
 
+// **** START of var declarations ****
+
+// what is connected to which prot on JeeNode
 Port portLeft (1);
 Port portRight (2);
 Port electr_led (1);
-
 Port portGas (3);
 Port gas_led (3);
 
-Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
-Metro sampleMetro = Metro(2);
-Metro wdtMetro = Metro(1000);
-Metro EeepromMetro = Metro(604800000);    // write mean measured electricitysensor trigger values to eeprom every 1 week
-Metro GeepromMetro = Metro(604800000);    // write mean measured gassensor trigger values to eeprom every 1 week
-//Metro EeepromMetro = Metro(120000);       // to test, now every 2 mins
-//Metro GeepromMetro = Metro(120000);       // to test, now every 2 mins
+// structures for rf12 communication
+typedef struct { char type;
+              	 long var1;
+		 long var2;
+		 long var3;
+} s_payload_t;  // Sensor data payload, size = 13 bytes
+s_payload_t s_data;
 
-// Variables read from eeprom
+typedef struct { char type;
+	         int minA; int maxA; int minB; int maxB;
+	         int minC; int maxC; int minD; int maxD;
+} x_payload_t;  // Status data payload, size = 17 bytes
+x_payload_t x_data;
+
+typedef struct { char command[5];
+                 int value;
+} eeprom_command_t;  // EEprom command payload, size = 7 bytes
+eeprom_command_t change_eeprom;
+
+// timers
+Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
+Metro sampleMetro = Metro(2);            // Sample the sensors every 2 ms
+Metro wdtMetro = Metro(1000);            // reset watchdog timer every 1 sec
+//Metro EeepromMetro = Metro(604800000);   // write mean measured electricitysensor trigger values to eeprom every 1 week
+//Metro GeepromMetro = Metro(604800000);   // write mean measured gassensor trigger values to eeprom every 1 week
+Metro EeepromMetro = Metro(86400000);   // write mean measured electricitysensor trigger values to eeprom every day
+Metro GeepromMetro = Metro(86400000);   // write mean measured gassensor trigger values to eeprom every day
+
+// vars read from eeprom
 int minLeft;
 int maxLeft;
 int minRight;
@@ -63,7 +86,7 @@ int maxRight;
 int minGas;
 int maxGas;
 
-// Variables for the sensor readings
+// vars for the sensor readings
 boolean stateLeft = 0;
 boolean stateRight = 0;
 boolean stateGas = 0;
@@ -85,7 +108,7 @@ int currMaxRight = 0;
 int currMinGas = 1024;
 int currMaxGas = 0;
 
-// Variables for timing/counting
+// vars for timing/counting
 int e_direction = 1;        // 1=forward(normal), -1=backward
 int e_prev_direction = 1;   // 1=forward(normal), -1=backward
 int e_report_direction = 1; // 1=forward(normal), -1=backward
@@ -101,41 +124,33 @@ unsigned long prevMs = 0;     // timestamp of last peak
 unsigned long prevprevMs = 0; // timestamp of 2nd last peak
 long rotationMs = 0;
 
-// Variables for sending/displaying readings
+// vars for sending/displaying readings
 int e_onceDone = 0;
 int e_onceDisplayed = 0;
 
 int g_onceDone = 0;
 int g_onceDisplayed = 0;
 
-// Variables for reading, changing or reporting eeprom values
-typedef struct {
-  int e_minL, e_maxL;
-  int e_minR, e_maxR;
-  int g_min, g_max;
-  int w_min, w_max;
-  int crc;
-} SensorConfig;
-SensorConfig rconfig, wconfig;
-
-typedef struct {
-  char command[5];
-  int value;
-} eeprom_command;
-eeprom_command change_eeprom;
+// vars for reading, changing or reporting eeprom values
+typedef struct { int e_minL, e_maxL;
+                 int e_minR, e_maxR;
+                 int g_min, g_max;
+                 int w_min, w_max;
+                 int crc;
+} SensorConfig_t;
+SensorConfig_t rconfig, wconfig;
 int crc;
 char i;
 char b;
 int do_write = 0;
 int do_report = 0;
 
-typedef struct {
-  int e_minL, e_maxL;
-  int e_minR, e_maxR;
+// vars for updating sensor trigger values in eeprom
+typedef struct { int e_minL, e_maxL;
+                 int e_minR, e_maxR;
 } Eset;
 
-typedef struct {
-  int g_min, g_max;
+typedef struct { int g_min, g_max;
 } Gset;
 
 Eset Evalues[10];
@@ -149,11 +164,7 @@ char Gi;
 int meanMinL, meanMaxL, meanMinR, meanMaxR;
 int meanMinG, meanMaxG;
 
-// Variables for wireless communication (sending sensor readings)
-struct { char type; long actual; long rotations; long rotationMs;
-         int minA; int maxA; int minB; int maxB;
-         int minC; int maxC; int minD; int maxD;
-} payload;
+// **** END of var declarations ****
 
 
 void read_eeprom() {
@@ -216,21 +227,21 @@ void write_eeprom() {
 
 
 void report_settings() {
-    payload.type='s';
-    payload.minA=rconfig.e_minL;
-    payload.maxA=rconfig.e_maxL;
-    payload.minB=rconfig.e_minR;
-    payload.maxB=rconfig.e_maxR;
-    payload.minC=rconfig.g_min;
-    payload.maxC=rconfig.g_max;
-    payload.minD=rconfig.w_min;
-    payload.maxD=rconfig.w_max;
+    x_data.type='x';
+    x_data.minA=rconfig.e_minL;
+    x_data.maxA=rconfig.e_maxL;
+    x_data.minB=rconfig.e_minR;
+    x_data.maxB=rconfig.e_maxR;
+    x_data.minC=rconfig.g_min;
+    x_data.maxC=rconfig.g_max;
+    x_data.minD=rconfig.w_min;
+    x_data.maxD=rconfig.w_max;
     
     // send report
     #if DEBUG
       Serial.print("Sending report ... ");
     #endif
-    rf12_easySend(&payload, sizeof payload);
+    rf12_easySend(&x_data, sizeof x_data);
     rf12_easyPoll(); // Actually send the data
     #if DEBUG
       Serial.println("OK");
@@ -288,7 +299,6 @@ void interpret_command() {
       wconfig.w_max=change_eeprom.value;
       do_write=1;
     }
-    
     // this is reporting only, no settings are changed
     if (strcmp(change_eeprom.command, "gtst") == 0) {
       do_report=1;
@@ -498,13 +508,13 @@ void loop() {
             flashd(electr_led);
         }
         
-        payload.type='e'; // type is electricity data
-        payload.actual=watt;
-        payload.rotations=e_rotations;
-        payload.rotationMs=rotationMs;
-        payload.minA=mminLeft; payload.maxA=mmaxLeft;
-        payload.minB=mminRight; payload.maxB=mmaxRight;
-        rf12_easySend(&payload, sizeof payload);
+        s_data.type='e'; // type is electricity data
+        s_data.var1=watt;
+        s_data.var2=e_rotations;
+        /* s_data.rotationMs=rotationMs;
+        s_data.minA=mminLeft; s_data.maxA=mmaxLeft;
+        s_data.minB=mminRight; s_data.maxB=mmaxRight;*/
+        rf12_easySend(&s_data, sizeof s_data);
         #if DEBUG                    
           Serial.print("e ");
           Serial.print(watt);
@@ -553,10 +563,10 @@ void loop() {
             write_eeprom();
             read_eeprom();
             // Send the adjusted electricity sensor trigger values
-            payload.type='z'; // type is electricity sensor trigger values
-            payload.minA=wconfig.e_minL; payload.maxA=wconfig.e_maxL;
-            payload.minB=wconfig.e_minR; payload.maxB=wconfig.e_maxR;
-            rf12_easySend(&payload, sizeof payload);
+            x_data.type='z'; // type is electricity sensor trigger values
+            x_data.minA=wconfig.e_minL; x_data.maxA=wconfig.e_maxL;
+            x_data.minB=wconfig.e_minR; x_data.maxB=wconfig.e_maxR;
+            rf12_easySend(&x_data, sizeof x_data);
             #if DEBUG                    
               Serial.print("z ");
               Serial.print("Adjusted electricity sensor trigger values: L:");
@@ -582,12 +592,12 @@ void loop() {
         g_rotations++;
         flashd(gas_led);
 
-        payload.type='g'; // type is gas data
-        payload.actual=gas_ltr;
-        payload.rotations=g_rotations;
-        payload.rotationMs=rotationMs;
-        payload.minC=mminGas; payload.maxC=mmaxGas;
-        rf12_easySend(&payload, sizeof payload);
+        s_data.type='g'; // type is gas data
+        s_data.var1=gas_ltr;
+        s_data.var2=g_rotations;
+        /* s_data.rotationMs=rotationMs;
+        s_data.minC=mminGas; s_data.maxC=mmaxGas;*/
+        rf12_easySend(&s_data, sizeof s_data);
         #if DEBUG                    
           Serial.print("g ");
           Serial.print(gas_ltr);
@@ -627,9 +637,9 @@ void loop() {
             write_eeprom();
             read_eeprom();
             // Send the adjusted gas sensor trigger values
-            payload.type='y'; // type is gas sensor trigger values
-            payload.minA=wconfig.g_min; payload.maxA=wconfig.g_max;
-            rf12_easySend(&payload, sizeof payload);
+            x_data.type='y'; // type is gas sensor trigger values
+            x_data.minA=wconfig.g_min; x_data.maxA=wconfig.g_max;
+            rf12_easySend(&x_data, sizeof x_data);
             #if DEBUG                    
               Serial.print("y ");
               Serial.print("Adjusted gas sensor trigger values: ");
@@ -644,8 +654,8 @@ void loop() {
     }
     
     // receive command for changing eeprom values or report settings
-    if (rf12_recvDone() && rf12_crc == 0 && rf12_len == sizeof (change_eeprom)) {
-        change_eeprom=*(eeprom_command*) rf12_data;
+    if (rf12_recvDone() && rf12_crc == 0 && rf12_len == sizeof (eeprom_command_t)) {
+        change_eeprom=*(eeprom_command_t*) rf12_data;
         interpret_command();
         if (RF12_WANTS_ACK) {
             rf12_sendStart(RF12_ACK_REPLY, 0, 0);
