@@ -11,6 +11,7 @@
 // Modifications:
 // Date:        Who:	Added:
 // 01apr2013    Jos	first version
+// 19may2013	Jos	Changed sample and send intervals and delete unused code
 
 #include <JeeLib.h>
 #include <Metro.h>
@@ -51,8 +52,8 @@ s_payload_t s_data;
 
 // timers
 Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
-Metro sampleMetro = Metro(5000);         // Sample every 30 sec
-Metro sendMetro = Metro(300000);          // send solar data every 5 min
+Metro sampleMetro = Metro(10000);        // Sample every 10 sec
+Metro sendMetro = Metro(60000);          // send solar data every 1 min
 Metro wdtMetro = Metro(1000);            // reset watchdog timer every 1 sec
 //Metro LDRMetro = Metro(1000);            // sample LDR every 1 sec
 
@@ -63,50 +64,8 @@ Soladin sol ;                            // copy of soladin class
 boolean sleeping;
 char pr_value[12];
 
-
 // **** END of var declarations ****
 
-
-void SPrintReadings() {
-  Serial.print("PV= ");
-  Serial.print(float(sol.PVvolt)/10);
-  Serial.print("V;   ");
-  Serial.print(float(sol.PVamp)/100);
-  Serial.println("A");
-
-  Serial.print("AC= ");
-  Serial.print(sol.Gridpower);
-  Serial.print("W;  ");
-  Serial.print(float(sol.Gridfreq)/100);
-  Serial.print("Hz;  ");
-  Serial.print(sol.Gridvolt);
-  Serial.println("Volt");
-
-  Serial.print("Device Temperature= ");
-  Serial.print(sol.DeviceTemp);
-  Serial.println(" Celcius");
-
-  Serial.print("AlarmFlag= ");
-  Serial.println(sol.Flag,BIN);
-
-  Serial.print("Total Power= ");
-  Serial.print(float(sol.Totalpower)/100);
-  Serial.println("kWh");
-  // I really don't know, why i must split the sprintf ?
-  Serial.print("Total Operating time= ");
-  char timeStr[14];
-  sprintf(timeStr, "%04d:",(sol.TotalOperaTime/60));
-  Serial.print(timeStr);
-  sprintf(timeStr, "%02d hh:mm ",  (sol.TotalOperaTime%60));
-  Serial.println(timeStr);
-  Serial.println();
-  Serial.print("Operation time today= ");
-  sprintf(timeStr, "%02d:%02d hh:mm ",((sol.DailyOpTm*5)/60), ((sol.DailyOpTm*5)%60));
-  Serial.print(timeStr);
-  Serial.print(float(sol.Gridoutput)/100);
-  Serial.println(" kWh");
-
-}
 
 void SDisplayTitles() {
   glcd.drawLine(21, 6, 42, 6, WHITE);
@@ -174,6 +133,7 @@ void SDisplayReadings() {
   glcd.refresh();
 }
 
+
 void SDisplaySleep() {
   glcd.clear();
   SDisplayTitles();
@@ -203,6 +163,7 @@ void SDisplaySleep() {
   glcd.refresh();
 }
 
+
 void sendSolar() {
   if (!sleeping) {
     s_data.type='s';
@@ -213,6 +174,7 @@ void sendSolar() {
     rf12_easyPoll();               // Actually send the data
   }
 }
+
 
 void GetDeviceReadings() {
   sleeping=true;
@@ -231,10 +193,10 @@ void GetDeviceReadings() {
     delay(500);
   }
   if (!sleeping) {
-    //SPrintReadings();
     SDisplayReadings();
   } else {
     //Serial.println("Sleeping..........");
+    glcd.backLight(75);
     SDisplaySleep();
   }
 }
@@ -288,8 +250,7 @@ void loop() {
         #endif
         glcd.backLight(LDRbacklight);
     }*/
-
-        
+ 
     if ( wdtMetro.check() ) {
       if (UNO) wdt_reset();
     }
