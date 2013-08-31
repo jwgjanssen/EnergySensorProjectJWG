@@ -18,9 +18,9 @@
 //                - (5) outside pressure (to GLCDNode)
 //                - local time with every packet send (to GLCDNode)
 //                - all values to USB for webpage
-//                - all values to cosm.com via Ethercard
+//                - all values to xively.com via Ethercard
 // Other:         - 2x16 LCD display (to display electricity usage & outside temperature)
-//                - Uses an Ethercard to send readings to cosm.com
+//                - Uses an Ethercard to send readings to xively.com
 //		  - commands to get/set eeprom sensor settings of the SensorNode:
 //			(NOTE: get/set is possible via the serial interface of the Arduino IDE)
 //			gtst,.		get/display all the sensor min and max settings
@@ -58,6 +58,7 @@
 // 19mar2013    Jos     Optimized communication structures for rf12
 // 29mar2013    Jos     Removed code for getting date & time from api.cosm.com (did not work reliably)
 // 30mar2013    Jos     Added code for getting date & time from DCF77 time module
+// 15may2013    Jos     cosm.com was replaced by xively.com
 
 
 #define DEBUG 0        // Set to 1 to activate debug code
@@ -73,8 +74,8 @@
 #include <Wire.h>
 #include "DCF77Clock.h"
 //#include <RTClib.h>
-#include "cosm_settings.h"  // contains cosm website, FEEDID & APIKEY :
-			    //   char website[] PROGMEM = "api.cosm.com";
+#include "cosm_settings.h"  // contains xively website, FEEDID & APIKEY :
+			    //   char website[] PROGMEM = "api.xively.com";
 			    //   #define FEEDID "your-own-id"
 			    //   #define APIKEY "your-own-key"
 
@@ -120,7 +121,7 @@ DallasTemperature sensors(&oneWire);
 Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
 Metro sendMetro = Metro(30500);          // send data to GLCDNode every 30.5 sec
 Metro sampleMetro = Metro(300000);       // sample temperature & pressure every 5 min
-Metro cosmMetro = Metro(60000);          // send data to Cosm every 60 sec
+Metro xivelyMetro = Metro(60000);        // send data to xively every 60 sec
 Metro wdtMetro = Metro(1000);            // watchdog timer reset every 1 sec
 Metro dcf77Metro = Metro(500);           // read time every 500ms
 
@@ -160,10 +161,10 @@ int swatt = 0;
 // vars for displaying on local LCD
 char lcd_temp[10];
 
-// vars for reporting to cosm
+// vars for reporting to xively
 int watt_set = 0;
 int gas_set = 1;	// Always report gas to show when no gas is used
-int gas_send = 0;	// Is gas send to cosm ?
+int gas_send = 0;	// Is gas send to xively ?
 int itemp_set = 0;
 int otemp_set = 0;
 int opres_set = 0;
@@ -376,7 +377,7 @@ void loop () {
 		    gas = 10;       // Start with 10L on first received g-line after sending
                   } else {
 		    gas = gas + 10; // Every g-line received from sensornode = 10L gas used
-                                    //   Is reset when send to COSM
+                                    //   Is reset when send to xively
                   }
                   showString(PSTR(" "));
                   Serial.print(s_data.var2);
@@ -557,8 +558,8 @@ void loop () {
       readTempPres();
     }
 
-    // Send data to cosm
-    if ( cosmMetro.check() ) {
+    // Send data to xively
+    if ( xivelyMetro.check() ) {
         // generate payload stash,
         // we can determine the size of the generated message ahead of time
         byte sd = stash.create();
