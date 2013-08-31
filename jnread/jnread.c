@@ -27,6 +27,7 @@
 # 11sep2012    Jos    	Added national holidays on variable dates for 2013	#
 # 28oct2012    Jos    	Deleted meter readings & changed webpage layout		#
 # 30mar2013    Jos    	Added handling solar production data			#
+# 01jul2013    Jos    	Changed date/time for midnight log entries		#
 #										#
 # Code written for Fedora 18 Linux and JeeNode with USB or BUB			#
 #										#
@@ -45,6 +46,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <sys/fcntl.h>
 #include <time.h>
 #include <string.h>
@@ -190,9 +192,9 @@ void set_actual_array()
 /* FUNCTION set_time_vars - set time variables */
 /* global vars used by this function */
 int hours, minutes;
-char wday[3];
-char today[10];
-char logdatetime[17];
+//char wday[3];
+//char today[10];
+char logdatetime[17],prevlogdatetime[17];
 char htmldatetime[32];
 
 void set_time_vars() {
@@ -211,9 +213,10 @@ void set_time_vars() {
   hours=atoi(date_time_str);
   strftime(date_time_str, sizeof(date_time_str), "%M", l_date_time);
   minutes=atoi(date_time_str);
-  strftime(wday, sizeof(date_time_str), "%a", l_date_time);
-  strftime(today, sizeof(date_time_str), "%d-%m-%Y", l_date_time);
+  //strftime(wday, sizeof(date_time_str), "%a", l_date_time);
+  //strftime(today, sizeof(date_time_str), "%d-%m-%Y", l_date_time);
   /*  Time/date var for logging purposes */
+  strcpy(prevlogdatetime,logdatetime);
   strftime(logdatetime, sizeof(date_time_str), "%d-%m-%y %H:%M:%S", l_date_time);
   /*  Time/date var for html page */
   strftime(htmldatetime, sizeof(date_time_str), "%a %b %d %H:%M:%S %Z %Y", l_date_time);
@@ -335,7 +338,6 @@ main(int argc, char *argv[])
   set_measurement_vars();
 
   set_time_vars();
-  //printf("%d %d %s %s  %s\n", hours, minutes, wday, today, logdatetime);
 
   /*  read line from port and process only lines that start with:
    * 	e: for electricity data
@@ -414,7 +416,7 @@ main(int argc, char *argv[])
        *  rotations now, because of a new day
        */
       if ( (prev_hours == 23) && (hours == 00) ) {
-        sprintf(logstring, "%s %d %d 0 %d %d\n", logdatetime, e_today, g_today, s_today, s_runtime);
+        sprintf(logstring, "%s %d %d 0 %d %d\n", prevlogdatetime, e_today, g_today, s_today, s_runtime);
         append_to_file(mlog, logstring);
         sprintf(logstring, "Midnight reset of the counters\n");
         append_to_file(log, logstring);
@@ -425,7 +427,7 @@ main(int argc, char *argv[])
 	s_today = 0;
 	s_runtime = 0;
         /*w_today = 0;
-        w_start_rotations = g_rotations;*/
+        w_start_rotations = w_rotations;*/
 
       }
       prev_hours = hours;
