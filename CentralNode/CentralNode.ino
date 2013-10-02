@@ -18,9 +18,7 @@
 //                - (5) outside pressure (to GLCDNode)
 //                - local time with every packet send (to GLCDNode)
 //                - all values to USB for webpage
-//                - all values to xively.com via Ethercard
 // Other:         - 2x16 LCD display (to display electricity usage & outside temperature)
-//                - Uses an Ethercard to send readings to xively.com
 //		  - commands to get/set eeprom sensor settings of the SensorNode:
 //			(NOTE: get/set is possible via the serial interface of the Arduino IDE)
 //			gtst,.		get/display all the sensor min and max settings
@@ -59,13 +57,13 @@
 // 29mar2013    Jos     Removed code for getting date & time from api.cosm.com (did not work reliably)
 // 30mar2013    Jos     Added code for getting date & time from DCF77 time module
 // 15may2013    Jos     cosm.com was replaced by xively.com
+// 31aug2013    Jos     Removed ethercard code and reporting to xively.com (reporting moved to jnread)
 
 
 #define DEBUG 0        // Set to 1 to activate debug code
 #define UNO 1          // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
 
 #include <JeeLib.h>
-#include <EtherCard.h>
 #include <Metro.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -73,11 +71,6 @@
 #include <PortsLCD.h>
 #include <Wire.h>
 #include "DCF77Clock.h"
-//#include <RTClib.h>
-#include "cosm_settings.h"  // contains xively website, FEEDID & APIKEY :
-			    //   char website[] PROGMEM = "api.xively.com";
-			    //   #define FEEDID "your-own-id"
-			    //   #define APIKEY "your-own-key"
 
 // Crash protection: Jeenode resets itself after x seconds of none activity (set in WDTO_xS)
 #define UNO 1          // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
@@ -89,12 +82,6 @@ ISR(WDT_vect) {
 #endif
 
 // **** START of var declarations ****
-
-// **** Ethercard (does not use a JeeNode Port)
-// ethernet interface mac address, must be unique on the LAN
-static byte mymac[] = { 0x58,0x17,0xAD,0x32,0x0A,0x00 };
-byte Ethernet::buffer[375]; // 400 works! 650 & 700 give strange effects (serial does not seem to work....)
-Stash stash;
 
 // **** JeeNode Port 1: 2x16 LCD
 PortI2C myI2C (1);
@@ -121,7 +108,6 @@ DallasTemperature sensors(&oneWire);
 Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
 Metro sendMetro = Metro(30500);          // send data to GLCDNode every 30.5 sec
 Metro sampleMetro = Metro(300000);       // sample temperature & pressure every 5 min
-Metro xivelyMetro = Metro(60000);        // send data to xively every 60 sec
 Metro wdtMetro = Metro(1000);            // watchdog timer reset every 1 sec
 Metro dcf77Metro = Metro(500);           // read time every 500ms
 
@@ -162,13 +148,6 @@ int swatt = 0;
 char lcd_temp[10];
 
 // vars for reporting to xively
-int watt_set = 0;
-int gas_set = 1;	// Always report gas to show when no gas is used
-int gas_send = 0;	// Is gas send to xively ?
-int itemp_set = 0;
-int otemp_set = 0;
-int opres_set = 0;
-int swatt_set = 0;
 float itemp_float;
 float otemp_float;
 float opres_float;
@@ -270,7 +249,6 @@ void readTempPres() {
   sensors.requestTemperatures(); // Send the command to get temperatures
   otemp=(int) (10*sensors.getTempCByIndex(0));
   otemp_float=(float)otemp/10;
-  otemp_set = 1;
   showString(PSTR("o "));
   Serial.print(otemp);
   showStringln(PSTR(" ")); // extra space at the end is needed
@@ -280,7 +258,6 @@ void readTempPres() {
   psensor.calculate(bmptemp, bmppres);
   opres=(int) (bmppres/10);
   opres_float=(float)opres/10;
-  opres_set = 1;
   showString(PSTR("p "));
   Serial.print(opres);
   showStringln(PSTR(" ")); // extra space at the end is needed
@@ -310,26 +287,6 @@ void setup () {
     Serial.begin(57600);
     showStringln(PSTR("\n[START recv]"));
     init_rf12();
-    if (ether.begin(sizeof Ethernet::buffer, mymac) == 0) {
-        showStringln(PSTR("Failed to access Ethernet controller"));
-        while (1);
-    }
-    #if DEBUG
-      showStringln(PSTR("begin DONE"));
-    #endif
-    if (!ether.dhcpSetup()) {
-        showStringln(PSTR("DHCP failed"));
-        while (1);
-    }
-    #if DEBUG
-      showStringln(PSTR("DHCP DONE"));
-    #endif
-    ether.printIp("IP:  ", ether.myip);
-    ether.printIp("GW:  ", ether.gwip);
-    ether.printIp("DNS: ", ether.dnsip); 
-    if (!ether.dnsLookup(website))
-        showStringln(PSTR("DNS failed"));
-    ether.printIp("SRV: ", ether.hisip);
     // INIT port 1
     lcd.begin(16, 2);       // LCD is 2x16 chars
     lcd.backlight();        // Turn on LCD backlight
@@ -351,8 +308,6 @@ void loop () {
          init_rf12();
     }
 
-    ether.packetLoop(ether.packetReceive());
-
     if (rf12_recvDone() && rf12_crc == 0) {
       if (rf12_len == sizeof (s_payload_t)) {
         s_data = *(s_payload_t*) rf12_data;
@@ -363,7 +318,6 @@ void loop () {
                   showString(PSTR("e "));
                   Serial.print(s_data.var1);
                   watt = (int)s_data.var1;
-		  watt_set = 1;
                   showString(PSTR(" "));
                   Serial.print(s_data.var2);
                   break;
@@ -372,13 +326,6 @@ void loop () {
                 {
                   showString(PSTR("g "));
                   Serial.print(s_data.var1);
-		  if ( gas_send == 1 ) {
-                    gas_send = 0;
-		    gas = 10;       // Start with 10L on first received g-line after sending
-                  } else {
-		    gas = gas + 10; // Every g-line received from sensornode = 10L gas used
-                                    //   Is reset when send to xively
-                  }
                   showString(PSTR(" "));
                   Serial.print(s_data.var2);
                  break;
@@ -389,7 +336,6 @@ void loop () {
                   Serial.print(s_data.var1);
                   itemp=(int)s_data.var1;
                   itemp_float=(float)s_data.var1/10;
-                  itemp_set = 1;
                   showString(PSTR(" "));
                   break;
                 }
@@ -398,7 +344,6 @@ void loop () {
                   showString(PSTR("s "));
                   Serial.print(s_data.var1);
                   swatt = (int)s_data.var1;
-		  swatt_set = 1;
                   showString(PSTR(" "));
                   Serial.print(s_data.var2);
                   showString(PSTR(" "));
@@ -558,70 +503,6 @@ void loop () {
       readTempPres();
     }
 
-    // Send data to xively
-    if ( xivelyMetro.check() ) {
-        // generate payload stash,
-        // we can determine the size of the generated message ahead of time
-        byte sd = stash.create();
-        if(watt_set) {
-            stash.print("Electricity,");stash.println(watt);
-            #if DEBUG
-            showString(PSTR("Send e  "));Serial.println(watt);
-            #endif
-            watt_set = 0;
-        }
-        if(gas_set) {
-            stash.print("Gas,");stash.println(gas);
-            #if DEBUG
-            showString(PSTR("Send g  "));Serial.println(gas);
-            #endif
-            gas_send = 1;
-	    gas = 0;
-        }
-        if(itemp_set) {
-            stash.print("Inside,");stash.println(itemp_float);
-            #if DEBUG
-            showString(PSTR("Send i  "));Serial.println(itemp_float);
-            #endif
-            itemp_set = 0;
-        }
-        if(otemp_set) {
-            stash.print("Outside,");stash.println(otemp_float);
-            #if DEBUG
-            showString(PSTR("Send o  "));Serial.println(otemp_float);
-            #endif
-            otemp_set = 0;
-        }
-        if(opres_set) {
-            stash.print("Pressure,");stash.println(opres_float);
-            #if DEBUG
-            showString(PSTR("Send p  "));Serial.println(opres_float);
-            #endif
-            opres_set = 0;
-        }
-        if(swatt_set) {
-            stash.print("SolarOutput,");stash.println(swatt);
-            #if DEBUG
-            showString(PSTR("Send s  "));Serial.println(swatt);
-            #endif
-            swatt_set = 0;
-        }
-        stash.save();
-    
-        // generate the header with payload - note that the stash size is used,
-        // and that a "stash descriptor" is passed in as argument using "$H"
-        Stash::prepare(PSTR("PUT http://$F/v2/feeds/$F.csv HTTP/1.0" "\r\n"
-                            "Host: $F" "\r\n"
-                            "X-PachubeApiKey: $F" "\r\n"
-                            "Content-Length: $D" "\r\n"
-                            "\r\n"
-                            "$H"),
-                website, PSTR(FEEDID), website, PSTR(APIKEY), stash.size(), sd);
-
-        ether.tcpSend();  // send the packet - this also releases all stash buffers once done
-        //Serial.println(freeRam());
-    }
-    
     if ( dcf77Metro.check() ) {
       dcf.getTime(dt);
       if(dt.min != curMin) {
