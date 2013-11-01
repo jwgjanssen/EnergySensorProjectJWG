@@ -12,6 +12,8 @@
 // Date:        Who:	Added:
 // 01apr2013    Jos	first version
 // 19may2013	Jos	Changed sample and send intervals and delete unused code
+// 02oct2013    Jos     Using rf12_sendNow in stead of rf12_easySend & rf12_easyPoll. Removed rf12ResetMetro code
+// 30oct2013    Jos     Solved display backlight bug (stayed at level 75 all the time)
 
 #include <JeeLib.h>
 #include <Metro.h>
@@ -51,7 +53,6 @@ typedef struct { char type;
 s_payload_t s_data;
 
 // timers
-Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
 Metro sampleMetro = Metro(10000);        // Sample every 10 sec
 Metro sendMetro = Metro(60000);          // send solar data every 1 min
 Metro wdtMetro = Metro(1000);            // reset watchdog timer every 1 sec
@@ -170,8 +171,7 @@ void sendSolar() {
     s_data.var1=sol.Gridpower;     // = Actual production in W
     s_data.var2=sol.Gridoutput*10; // = kWh today * 1000
     s_data.var3=sol.DailyOpTm*5;  // = running time today in minutes
-    rf12_easySend(&s_data, sizeof s_data);
-    rf12_easyPoll();               // Actually send the data
+    rf12_sendNow(0, &s_data, sizeof s_data);
   }
 }
 
@@ -193,6 +193,7 @@ void GetDeviceReadings() {
     delay(500);
   }
   if (!sleeping) {
+    glcd.backLight(150);
     SDisplayReadings();
   } else {
     //Serial.println("Sleeping..........");
@@ -204,7 +205,6 @@ void GetDeviceReadings() {
 
 void init_rf12() {
     rf12_initialize(5, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 5
-    rf12_easyInit(0); // Send interval = 0 sec (=immediate).
 }
 
 
@@ -218,18 +218,13 @@ void setup() {
     sol.begin(&uart);
     if (UNO) wdt_enable(WDTO_8S);  // set timeout to 8 seconds
     glcd.begin();  // set contast between 0x15 and 0x1a
-    glcd.backLight(200);
+    glcd.backLight(150);
     GetDeviceReadings();
     sendSolar();
 }
 
   
 void loop() {
-    // re-initialize rf12 every week to avoid rf12 hangup after a long time
-    if ( rf12ResetMetro.check() ) {
-      init_rf12();
-    }
-
     // take a reading from the Soladin 
     if ( sampleMetro.check() ) {
       GetDeviceReadings();
