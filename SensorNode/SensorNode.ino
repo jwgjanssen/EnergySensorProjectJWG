@@ -26,6 +26,7 @@
 // 15feb2013    Jos     Changed sampleMetro from 5 to 2 ms
 // 04mar2013    Jos     Added code to update eeprom sensor trigger values once a week
 // 19mar2013    Jos     Optimized communication structures for rf12
+// 02oct2013    Jos     Using rf12_sendNow in stead of rf12_easySend & rf12_easyPoll. Removed rf12ResetMetro code
 
 #include <JeeLib.h>
 #include <Metro.h>
@@ -70,13 +71,12 @@ typedef struct { char command[5];
 eeprom_command_t change_eeprom;
 
 // timers
-Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
 Metro sampleMetro = Metro(2);            // Sample the sensors every 2 ms
 Metro wdtMetro = Metro(1000);            // reset watchdog timer every 1 sec
-//Metro EeepromMetro = Metro(604800000);   // write mean measured electricitysensor trigger values to eeprom every 1 week
-//Metro GeepromMetro = Metro(604800000);   // write mean measured gassensor trigger values to eeprom every 1 week
-Metro EeepromMetro = Metro(86400000);   // write mean measured electricitysensor trigger values to eeprom every day
-Metro GeepromMetro = Metro(86400000);   // write mean measured gassensor trigger values to eeprom every day
+Metro EeepromMetro = Metro(604800000);   // write mean measured electricitysensor trigger values to eeprom every 1 week
+Metro GeepromMetro = Metro(604800000);   // write mean measured gassensor trigger values to eeprom every 1 week
+//Metro EeepromMetro = Metro(86400000);   // write mean measured electricitysensor trigger values to eeprom every day
+//Metro GeepromMetro = Metro(86400000);   // write mean measured gassensor trigger values to eeprom every day
 
 // vars read from eeprom
 int minLeft;
@@ -241,8 +241,7 @@ void report_settings() {
     #if DEBUG
       Serial.print("Sending report ... ");
     #endif
-    rf12_easySend(&x_data, sizeof x_data);
-    rf12_easyPoll(); // Actually send the data
+    rf12_sendNow(0, &x_data, sizeof x_data);
     #if DEBUG
       Serial.println("OK");
     #endif
@@ -315,7 +314,6 @@ void flashd(Port light) {
 
 void init_rf12 () {
     rf12_initialize(3, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 3
-    rf12_easyInit(0); // Send interval = 0 sec (=immediate).
 }
 
 
@@ -325,8 +323,6 @@ void setup() {
       Serial.println("\n[Monitoring a Electricity & Gas Meter]");
     #endif
     init_rf12();
-    //rf12_initialize(3, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 3
-    //rf12_easyInit(0); // Send interval = 0 sec (=immediate).
     portLeft.mode(INPUT);
     portRight.mode(INPUT);
     electr_led.mode(OUTPUT);
@@ -342,9 +338,10 @@ void setup() {
   
 void loop() {
     // re-initialize rf12 every week to avoid rf12 hangup after a long time
-    if ( rf12ResetMetro.check() ) {
-         init_rf12();
-    }
+    // if ( rf12ResetMetro.check() ) {
+    //      init_rf12();
+    // }
+
     // take a reading from the sensors 
     if ( sampleMetro.check() ) {
          // read sensors
@@ -514,7 +511,7 @@ void loop() {
         /* s_data.rotationMs=rotationMs;
         s_data.minA=mminLeft; s_data.maxA=mmaxLeft;
         s_data.minB=mminRight; s_data.maxB=mmaxRight;*/
-        rf12_easySend(&s_data, sizeof s_data);
+        rf12_sendNow(0, &s_data, sizeof s_data);
         #if DEBUG                    
           Serial.print("e ");
           Serial.print(watt);
@@ -534,7 +531,6 @@ void loop() {
           Serial.println("");
         #endif
         e_onceDisplayed=1;
-        rf12_easyPoll(); // Actually send the data
         
         if (do_save_Evalues) {
           #if DEBUG
@@ -566,7 +562,7 @@ void loop() {
             x_data.type='z'; // type is electricity sensor trigger values
             x_data.minA=wconfig.e_minL; x_data.maxA=wconfig.e_maxL;
             x_data.minB=wconfig.e_minR; x_data.maxB=wconfig.e_maxR;
-            rf12_easySend(&x_data, sizeof x_data);
+            rf12_sendNow(0, &x_data, sizeof x_data);
             #if DEBUG                    
               Serial.print("z ");
               Serial.print("Adjusted electricity sensor trigger values: L:");
@@ -579,7 +575,6 @@ void loop() {
               Serial.print(wconfig.e_maxR);
               Serial.println("");
             #endif
-            rf12_easyPoll(); // Actually send the data
           }
         }
     }
@@ -597,7 +592,7 @@ void loop() {
         s_data.var2=g_rotations;
         /* s_data.rotationMs=rotationMs;
         s_data.minC=mminGas; s_data.maxC=mmaxGas;*/
-        rf12_easySend(&s_data, sizeof s_data);
+        rf12_sendNow(0, &s_data, sizeof s_data);
         #if DEBUG                    
           Serial.print("g ");
           Serial.print(gas_ltr);
@@ -610,7 +605,6 @@ void loop() {
           Serial.println("");
         #endif
         g_onceDisplayed=1;
-        rf12_easyPoll(); // Actually send the data
         
         if (do_save_Gvalues) {
           #if DEBUG
@@ -639,7 +633,7 @@ void loop() {
             // Send the adjusted gas sensor trigger values
             x_data.type='y'; // type is gas sensor trigger values
             x_data.minA=wconfig.g_min; x_data.maxA=wconfig.g_max;
-            rf12_easySend(&x_data, sizeof x_data);
+            rf12_sendNow(0, &x_data, sizeof x_data);
             #if DEBUG                    
               Serial.print("y ");
               Serial.print("Adjusted gas sensor trigger values: ");
@@ -648,7 +642,6 @@ void loop() {
               Serial.print(wconfig.g_max);
               Serial.println("");
             #endif
-            rf12_easyPoll(); // Actually send the data
           }
         }
     }
