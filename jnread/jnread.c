@@ -28,6 +28,8 @@
 # 28oct2012    Jos    	Deleted meter readings & changed webpage layout		#
 # 30mar2013    Jos    	Added handling solar production data			#
 # 01jul2013    Jos    	Changed date/time for midnight log entries		#
+# 31aug2013    Jos      Added logging to xively.com (excl. gas)			#
+# 01sep2013    Jos      Solution for reporting gas to xively.com                #
 #										#
 # Code written for Fedora 18 Linux and JeeNode with USB or BUB			#
 #										#
@@ -50,6 +52,8 @@
 #include <sys/fcntl.h>
 #include <time.h>
 #include <string.h>
+
+#include "xively_settings.h"
 
 
 /*#### DEFINITIONS ##########################################################*/
@@ -222,6 +226,7 @@ void set_time_vars() {
   strftime(htmldatetime, sizeof(date_time_str), "%a %b %d %H:%M:%S %Z %Y", l_date_time);
 }
 
+
 /* FUNCTIONs to open USB port and read line from USB port */
 /* global vars used by this functions */
 FILE *usb_fp;
@@ -304,7 +309,6 @@ void create_html_page() {
       sprintf(htmlstring, "</FONT></TABLE></BODY></HTML>");
       append_to_file(thtml, htmlstring);
       rename(thtml, ahtml);
-
 }
 
 
@@ -322,7 +326,7 @@ main(int argc, char *argv[])
   char alog[]=ACTUAL_LOG;	// File with the last actual values
   char usb_line[128];		// line read from usb port
   char rrd_db[]=RRD_DB; 	// RRD database file
-  char systemstr[80];           // line to be executed by OS
+  char systemstr[120];          // line to be executed by OS
   int gbytes;			// bytes read from usb port
   char type; int item2; long item3; long item4; // items in USB message
   int i;			// counter
@@ -369,6 +373,8 @@ main(int argc, char *argv[])
             printf("type %c, watt %d, e_rotations %d\n", type, watt, e_rotations);
           #endif
           e_today = ((e_rotations-e_start_rotations)*1000)/CFACTOR;
+	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Electricity", watt);
+	  system(systemstr);
           break;
         case 'g':
           g_rotations=item3;
@@ -376,24 +382,35 @@ main(int argc, char *argv[])
             printf("type %c, g_rotations %d\n", type, g_rotations);
           #endif
           g_today = (g_rotations-g_start_rotations)*10;
+	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Gas", 10);
+	  system(systemstr);
+	  sleep(1);
+	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Gas", 0);
+	  system(systemstr);
           break;
         case 'i':
           itemperature=item2;
           #if DEBUG
             printf("type %c, itemperature %d\n", type, itemperature);
           #endif
+	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %2.1f", APIKEY, FEEDID, "Inside", (float)itemperature/10);
+	  system(systemstr);
           break;
         case 'o':
           otemperature=item2;
           #if DEBUG
             printf("type %c, otemperature %d\n", type, otemperature);
           #endif
+	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %2.1f", APIKEY, FEEDID, "Outside", (float)otemperature/10);
+	  system(systemstr);
           break;
         case 'p':
           opressure=item2;
           #if DEBUG
             printf("type %c, opressure %d\n", type, opressure);
           #endif
+	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %4.1f", APIKEY, FEEDID, "Pressure", (float)opressure/10);
+	  system(systemstr);
           break;
         case 's':
           swatt=item2;
@@ -403,6 +420,8 @@ main(int argc, char *argv[])
             printf("type %c, swatt %d, s_today %d, s_runtime %d\n", type, swatt, s_today, s_runtime);
           #endif
 	  sprintf(systemstr, "rrdtool update %s N:%d", rrd_db, swatt);
+	  system(systemstr);
+	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "SolarOutput", swatt);
 	  system(systemstr);
           break;
 //      case 'w':
