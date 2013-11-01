@@ -27,6 +27,7 @@
 // 12mar2013    Jos     Changed contrast for new display using glcd.begin(0x1a)
 // 19mar2013    Jos     Optimized communication structures for rf12
 // 30mar2013    Jos     Added code to display solar data
+// 02oct2013    Jos     Using rf12_sendNow in stead of rf12_easySend & rf12_easyPoll. Removed rf12ResetMetro code
 
 
 #define DEBUG 0
@@ -67,7 +68,6 @@ boolean buttonPressed=0;
 int LDR, LDRbacklight;
 
 // timers
-Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
 Metro temperatureMetro = Metro(60500);   // sample temperature every 60.5 sec
 Metro LDRMetro = Metro(1000);            // sample LDR every 1 sec
 Metro wdtMetro = Metro(1500);            // watchdog timer reset every 1.5 sec
@@ -210,8 +210,7 @@ void get_temperature () {
       Serial.print(itemp);
       Serial.println(" "); // extra space at the end is needed
     #endif
-    rf12_easySend(&s_data, sizeof s_data);
-    rf12_easyPoll(); // Actually send the data every interval (see easyInit above)
+    rf12_sendNow(0, &s_data, sizeof s_data);
      
     d_data.type=3;
     d_data.value=itemp;
@@ -219,7 +218,6 @@ void get_temperature () {
 
 void init_rf12 () {
     rf12_initialize(4, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 4
-    rf12_easyInit(0); // Send interval = 0 sec (=immediate).
 }
 
 void setup () {
@@ -239,11 +237,6 @@ void setup () {
 }
 
 void loop () {
-    // re-initialize rf12 every week to avoid rf12 hangup after a long time
-    if ( rf12ResetMetro.check() ) {
-         init_rf12();
-    }
-    
     if ( temperatureMetro.check() ) {
         get_temperature();
         display_data();
