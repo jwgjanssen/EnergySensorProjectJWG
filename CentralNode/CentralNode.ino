@@ -58,6 +58,7 @@
 // 30mar2013    Jos     Added code for getting date & time from DCF77 time module
 // 15may2013    Jos     cosm.com was replaced by xively.com
 // 31aug2013    Jos     Removed ethercard code and reporting to xively.com (reporting moved to jnread)
+// 02oct2013	Jos	Using rf12_sendNow in stead of rf12_easySend & rf12_easyPoll. Removed rf12ResetMetro code
 
 
 #define DEBUG 0        // Set to 1 to activate debug code
@@ -105,7 +106,6 @@ OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
 // timers
-Metro rf12ResetMetro = Metro(604800000); // re-init rf12 every 1 week
 Metro sendMetro = Metro(30500);          // send data to GLCDNode every 30.5 sec
 Metro sampleMetro = Metro(300000);       // sample temperature & pressure every 5 min
 Metro wdtMetro = Metro(1000);            // watchdog timer reset every 1 sec
@@ -194,8 +194,7 @@ void send_eeprom_update() {
     Serial.print(change_eeprom.command);
     showString(PSTR(", Value= "));
     Serial.println(change_eeprom.value);
-    rf12_easySend(&change_eeprom, sizeof change_eeprom);
-    rf12_easyPoll(); // Actually send the data
+    rf12_sendNow(0, &change_eeprom, sizeof change_eeprom);
 }
 
 
@@ -272,14 +271,14 @@ void sendTime() {
   Serial.print(dt.hour); Serial.print(":"); if (dt.min < 10) Serial.print("0"); Serial.print(dt.min); Serial.print("  ");
   Serial.print(dt.day); Serial.print("-"); Serial.print(dt.month); Serial.print("-20"); Serial.print(dt.year);
   Serial.println();
-  //rf12_easySend(&s_data, sizeof s_data);
-  //rf12_easyPoll(); // Actually send the data
+  // The time data is send whenever other data (temp, pressure, electr, solar) is send to GLCDnode.
+  // So this send command is (and remains) commented out!
+  //rf12_sendNow(0, &s_data, sizeof s_data);
 }
 
 
 void init_rf12 () {
     rf12_initialize(30, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 30
-    rf12_easyInit(0); // Send interval = 0 sec (=immediate).
 }
 
 
@@ -303,11 +302,6 @@ void setup () {
 }
 
 void loop () {
-    // re-initialize rf12 every week to avoid rf12 hangup after a long time
-    if ( rf12ResetMetro.check() ) {
-         init_rf12();
-    }
-
     if (rf12_recvDone() && rf12_crc == 0) {
       if (rf12_len == sizeof (s_payload_t)) {
         s_data = *(s_payload_t*) rf12_data;
@@ -448,34 +442,29 @@ void loop () {
         // Send data to display on GLCD Jeenode
         d_data.type=1;  // display electricity data
         d_data.value=watt;
-        rf12_easySend(&d_data, sizeof d_data);
-        rf12_easyPoll(); // Actually send the data
+        rf12_sendNow(0, &d_data, sizeof d_data);
         
         delay(100);
         d_data.type=2;  // display solar data
         d_data.value=swatt;
-        rf12_easySend(&d_data, sizeof d_data);
-        rf12_easyPoll(); // Actually send the data
+        rf12_sendNow(0, &d_data, sizeof d_data);
         
 	/* Do not send inside temp, is GLCDNode local
         delay(100);
         d_data.type=3;  // display inside temperature data
         d_data.value=itemp;
-        rf12_easySend(&d_data, sizeof d_data);
-        rf12_easyPoll(); // Actually send the data
+        rf12_sendNow(0, &d_data, sizeof d_data);
 	*/
         
         delay(100);
         d_data.type=4;  // display outside temperature data
         d_data.value=otemp;
-        rf12_easySend(&d_data, sizeof d_data);
-        rf12_easyPoll(); // Actually send the data
+        rf12_sendNow(0, &d_data, sizeof d_data);
         
         delay(100);
         d_data.type=5;  // display outside pressure data
         d_data.value=opres;
-        rf12_easySend(&d_data, sizeof d_data);
-        rf12_easyPoll(); // Actually send the data
+        rf12_sendNow(0, &d_data, sizeof d_data);
         
         // Display data on local LCD
         lcd.setCursor(8,0); lcd.print("Verbruik"); 
