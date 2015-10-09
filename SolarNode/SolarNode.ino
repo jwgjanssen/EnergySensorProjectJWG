@@ -5,17 +5,20 @@
 // Local sensors: - serial connection to communicationsport of the Mastervolt Soladin 600
 // Receives:      - 
 // Sends:         - (s) actual & total daily production, and inverter runtime (to CentralNode)
-// Other:         - 64x128 graphic LCD (to solar inverter data)
+// Other:         - 64x128 graphic LCD (to display solar inverter data)
 //
 // Author: Jos Janssen
 // Modifications:
 // Date:        Who:	Added:
-// 01apr2013    Jos	first version
-// 19may2013	Jos	Changed sample and send intervals and delete unused code
-// 02oct2013    Jos     Using rf12_sendNow in stead of rf12_easySend & rf12_easyPoll. Removed rf12ResetMetro code
-// 30oct2013    Jos     Solved display backlight bug (stayed at level 75 all the time)
+// 01apr2013    Jos	  first version
+// 19may2013    Jos	  Changed sample and send intervals and delete unused code
+// 02oct2013    Jos   Using rf12_sendNow in stead of rf12_easySend & rf12_easyPoll. Removed rf12ResetMetro code
+// 30oct2013    Jos   Solved display backlight bug (stayed at level 75 all the time)
+// 20oct2014    Jos   Added code to keep correct counters for Daily Operating Time and Gridoutput of the Soladin
+//                      after being non-responsive during the day due to bad weather or solar eclipse.
 
 #include <JeeLib.h>
+#include <StopWatch.h>
 #include <Metro.h>
 #include <Soladin_uart.h>
 #include <GLCD_ST7565.h>
@@ -23,6 +26,8 @@
 #include "utility/font_clR5x8.h"
 
 #define DEBUG 0
+#define EXIT_SUCCESS 1
+#define EXIT_FAILURE 0
 
 // Crash protection: Jeenode resets itself after x seconds of none activity (set in WDTO_xS)
 const int UNO = 1;    // Set to 0 if your not using the UNO bootloader (i.e using Duemilanove)
@@ -57,13 +62,27 @@ Metro sampleMetro = Metro(10000);        // Sample every 10 sec
 Metro sendMetro = Metro(60000);          // send solar data every 1 min
 Metro wdtMetro = Metro(1000);            // reset watchdog timer every 1 sec
 //Metro LDRMetro = Metro(1000);            // sample LDR every 1 sec
+StopWatch susp_secs(StopWatch::SECONDS); // stopwatch to measure time since start suspended state
 
-// vars for communication with Soladin
-Soladin sol ;                            // copy of soladin class
+// vars for Soladin data
+Soladin sol;                             // copy of soladin class
+uint8_t  DailyOpTm,  DailyOpTm_bu;       // vars for handling Daily Operating Time before and after SUSPENDED state
+uint16_t Gridoutput, Gridoutput_bu;      // vars for handling Gridoutput before and after SUSPENDED state
 
 // vars for status of Soladin
-boolean sleeping;
+#define SLEEPING 0
+#define AWAKE 1
+#define SUSPENDED 2
+int inverter_state; // Possible values: 
+                    // SLEEPING (0) : Soladin does not respond to commands
+                    // AWAKE (1)    : Soladin responds to commands
+                    // SUSPENDED (2): The first 3 hours of Soladin not responding to commands, is seen as SUSPENDED
+                    //                state in stead of SLEEPING. This state is needed to handle the Soladin
+                    //                being non-responsive during the day due to bad weather or solar eclipse.
 char pr_value[12];
+
+// counter variables
+int i_nosleep = 0;  // Count good Soladin readings
 
 // **** END of var declarations ****
 
@@ -89,6 +108,11 @@ void SDisplayTitles() {
   glcd.drawString_P(76, 36, PSTR("Temp"));
   glcd.drawString_P(76, 44, PSTR("Eff"));
   glcd.drawString_P(76, 52, PSTR("Error"));
+  switch (inverter_state) {
+      case SLEEPING:  glcd.drawString_P(76, 59, PSTR("State: sleep")); break;
+      case SUSPENDED: glcd.drawString_P(76, 59, PSTR("State: susp")); break;
+      case AWAKE:     glcd.drawString_P(76, 59, PSTR("State: awake")); break;
+  }
   // Solar part
   glcd.drawString_P(5, 40, PSTR("Solar"));
   // Mains part
@@ -98,18 +122,19 @@ void SDisplayTitles() {
 void SDisplayReadings() {
   int eff;
   glcd.clear();
+  glcd.backLight(150);
   SDisplayTitles();
   // Write all the values for the display
   glcd.setFont(font_clR5x8);
   // Power part
   sprintf(pr_value, "%3d W", sol.Gridpower);
   glcd.drawString(25, 9, pr_value);
-  sprintf(pr_value, "%2d.%02d kWh", sol.Gridoutput/100, abs(sol.Gridoutput%100));
+  sprintf(pr_value, "%2d.%02d kWh", Gridoutput/100, abs(Gridoutput%100));
   glcd.drawString(25, 19, pr_value);
   sprintf(pr_value, "%5d kWh", sol.Totalpower/100);
   glcd.drawString(25, 29, pr_value);
   // Inverter part
-  sprintf(pr_value, "%02d:%02d", (sol.DailyOpTm*5)/60, ((sol.DailyOpTm*5)%60));
+  sprintf(pr_value, "%02d:%02d", (DailyOpTm*5)/60, ((DailyOpTm*5)%60));
   glcd.drawString(97, 17, pr_value);
   sprintf(pr_value, "%06d", sol.TotalOperaTime/60);
   glcd.drawString(97, 25, pr_value);
@@ -137,17 +162,18 @@ void SDisplayReadings() {
 
 void SDisplaySleep() {
   glcd.clear();
+  glcd.backLight(75);
   SDisplayTitles();
   // Write all the values for the display
   glcd.setFont(font_clR5x8);
   // Power part
   glcd.drawString_P(25, 9, PSTR("--- W"));
-  sprintf(pr_value, "%2d.%02d kWh", sol.Gridoutput/100, abs(sol.Gridoutput%100));
+  sprintf(pr_value, "%2d.%02d kWh", Gridoutput/100, abs(Gridoutput%100));
   glcd.drawString(25, 19, pr_value); //glcd.drawString_P(25, 19, PSTR("--.-- kWh"));
   sprintf(pr_value, "%5d kWh", sol.Totalpower/100);
   glcd.drawString(25, 29, pr_value); //glcd.drawString_P(25, 29, PSTR("----- kWh"));
   // Inverter part
-  sprintf(pr_value, "%02d:%02d", (sol.DailyOpTm*5)/60, ((sol.DailyOpTm*5)%60));
+  sprintf(pr_value, "%02d:%02d", (DailyOpTm*5)/60, ((DailyOpTm*5)%60));
   glcd.drawString(97, 17, pr_value); //glcd.drawString_P(97, 17, PSTR("--:--"));
   sprintf(pr_value, "%06d", sol.TotalOperaTime/60);
   glcd.drawString(97, 25, pr_value); //glcd.drawString_P(97, 25, PSTR("------"));
@@ -156,8 +182,8 @@ void SDisplaySleep() {
   glcd.drawString_P(97, 43, PSTR("--.-%"));
   glcd.drawString_P(97, 51, PSTR("------"));
   // Solar part
-  glcd.drawString_P(0, 49, PSTR("--.-- V"));
-  glcd.drawString_P(0, 57, PSTR("--.-- A"));
+  glcd.drawString_P(0, 49, PSTR("--.--V"));
+  glcd.drawString_P(0, 57, PSTR("--.--A"));
   // Mains part
   glcd.drawString_P(44, 49, PSTR("--- V"));
   glcd.drawString_P(34, 57, PSTR("--.-- Hz"));
@@ -166,40 +192,42 @@ void SDisplaySleep() {
 
 
 void sendSolar() {
-  if (!sleeping) {
-    s_data.type='s';
-    s_data.var1=sol.Gridpower;     // = Actual production in W
-    s_data.var2=sol.Gridoutput*10; // = kWh today * 1000
-    s_data.var3=sol.DailyOpTm*5;  // = running time today in minutes
-    rf12_sendNow(0, &s_data, sizeof s_data);
-  }
+  s_data.type='s';
+  s_data.var1=sol.Gridpower;     // = Actual production in W
+  s_data.var2=sol.Gridoutput*10; // = kWh today * 1000
+  s_data.var3=sol.DailyOpTm*5;  // = running time today in minutes
+  rf12_sendNow(0, &s_data, sizeof s_data);
 }
 
 
-void GetDeviceReadings() {
-  sleeping=true;
+int GetDeviceReadings() {
+  int rc;
+  
+  // Get Soladin values for: Flag, PVvolt, PVamp, Gridfreq, Gridvolt, Gridpower
+  //                         Totalpower, DeviceTemp, TotalOperaTime
   for (int i=0 ; i < 3 ; i++) {
-    if (sol.query(DVS)) {           // request Device status
-        sleeping=false;
-        break;
-    }
-    delay(500);
+      if (sol.query(DVS)) {           // request Device status
+          rc = EXIT_SUCCESS;
+          break;
+      } else {
+          rc = EXIT_FAILURE;
+      }
+      delay(500);
   }
+  
+  // Get Soladin values for: DailyOpTm, Gridoutput
   for (int i=0 ; i < 3 ; i++) {
-    if (sol.query(HSD,0)) {         // request today's power and running time
-        sleeping=false;
-        break;
-    }
-    delay(500);
+      if (sol.query(HSD,0)) {         // request today's power and running time
+          DailyOpTm = sol.DailyOpTm + DailyOpTm_bu;
+          Gridoutput = sol.Gridoutput + Gridoutput_bu;
+          rc = EXIT_SUCCESS;
+          break;
+      } else {
+          rc = EXIT_FAILURE;
+      }
+      delay(500);
   }
-  if (!sleeping) {
-    glcd.backLight(150);
-    SDisplayReadings();
-  } else {
-    //Serial.println("Sleeping..........");
-    glcd.backLight(75);
-    SDisplaySleep();
-  }
+  return rc;
 }
 
 
@@ -218,21 +246,57 @@ void setup() {
     sol.begin(&uart);
     if (UNO) wdt_enable(WDTO_8S);  // set timeout to 8 seconds
     glcd.begin();  // set contast between 0x15 and 0x1a
-    glcd.backLight(150);
-    GetDeviceReadings();
-    sendSolar();
+    DailyOpTm_bu = 0;
+    Gridoutput_bu = 0;
+    if ( GetDeviceReadings() ) {
+        inverter_state = AWAKE;
+        SDisplayReadings();
+        sendSolar();
+    } else {
+        inverter_state = SLEEPING;
+        SDisplaySleep();
+    }
 }
 
   
 void loop() {
-    // take a reading from the Soladin 
+    // take a reading from the Soladin and display corresponding data
     if ( sampleMetro.check() ) {
-      GetDeviceReadings();
+        if ( GetDeviceReadings() ) {
+            if ( inverter_state == SUSPENDED ) {
+                susp_secs.reset();  // reset stopwatch to 0
+            }
+            inverter_state = AWAKE;
+            SDisplayReadings();
+        } else {
+            if ( inverter_state == AWAKE ) {
+                // save last valid readings for DailyOpTm and Gridoutput
+                DailyOpTm_bu = DailyOpTm;
+                Gridoutput_bu = Gridoutput;
+
+                susp_secs.reset();  // reset stopwatch to 0
+                susp_secs.start();  // start stopwatch
+                inverter_state = SUSPENDED;
+            }
+            
+            SDisplaySleep();
+            
+            // set inverter state to SLEEPING after 3 hours (10800 secs) of SUSPENDED state
+            if ( (susp_secs.state() == StopWatch::RUNNING) && (susp_secs.elapsed() > 10800) ) {
+                susp_secs.reset();  // reset stopwatch to 0
+                inverter_state = SLEEPING;
+                // reset backup vars
+                DailyOpTm_bu = 0;
+                Gridoutput_bu = 0;
+            }
+        }
     }
         
     // send solar data to Central Node 
     if ( sendMetro.check() ) {
-      sendSolar();
+        if (inverter_state == AWAKE) {
+            sendSolar();
+        }
     }
 
     /*if ( LDRMetro.check() ) {
