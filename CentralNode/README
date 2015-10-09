@@ -5,7 +5,8 @@
 // Local sensors: - outside temperature (DS18B20)
 //                - barometric pressure (BMP085)
 //                - DCF77 time module
-// Receives:      - (e) electricity readings (from SensorNode)
+// Receives:      - (a) appliance power readings (from ApplianceNode)
+//                - (e) electricity readings (from SensorNode)
 //                - (g) gas readings (from SensorNode)
 //                - (i) inside temperature (from GLCDNode)
 //                - (s) solar readings (from SolarNode)

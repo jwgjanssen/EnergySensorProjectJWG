@@ -5,7 +5,8 @@
 // Local sensors: - outside temperature (DS18B20)
 //                - barometric pressure (BMP085)
 //                - DCF77 time module
-// Receives:      - (e) electricity readings (from SensorNode)
+// Receives:      - (a) appliance power readings (from ApplianceNode)
+//                - (e) electricity readings (from SensorNode)
 //                - (g) gas readings (from SensorNode)
 //                - (i) inside temperature (from GLCDNode)
 //                - (s) solar readings (from SolarNode)
@@ -40,11 +41,11 @@
 //                        because of possible EMI interference on USB (disconnects).
 // 15feb2012    Jos    	Enabled local DS18B20 temperature sensor again.
 // 02jul2012    Jos    	Added sending outside temp & pressure via rf12
-// 31aug2012	Jos	Added description of eeprom commands
+// 31aug2012    Jos     Added description of eeprom commands
 // 08sep2012    Jos     Included the code for sending data to cosm.com via ethercard
 // 09sep2012    Jos     Included code for 8 second watchdog reset
 // 02oct2012    Jos     Added Inside temperature to local LCD (changed layout for this)
-// 28oct2012	Jos	Added sending gas data to cosm.com
+// 28oct2012    Jos     Added sending gas data to cosm.com
 // 15feb2013    Jos     Added code to re-initialze the rf12 every one week to avoid hangup after a long time
 // 04mar2013    Jos     Added code to receive adjusted electricity and gas sensor trigger values
 // 04mar2013    Jos     Used showString(PSTR("...")) for several long strings to save RAM space
@@ -58,7 +59,8 @@
 // 30mar2013    Jos     Added code for getting date & time from DCF77 time module
 // 15may2013    Jos     cosm.com was replaced by xively.com
 // 31aug2013    Jos     Removed ethercard code and reporting to xively.com (reporting moved to jnread)
-// 02oct2013	Jos	Using rf12_sendNow in stead of rf12_easySend & rf12_easyPoll. Removed rf12ResetMetro code
+// 02oct2013    Jos     Using rf12_sendNow in stead of rf12_easySend & rf12_easyPoll. Removed rf12ResetMetro code
+// 28nov2013    Jos     Added code for receiving appliance-power measurements via type "a".
 
 
 #define DEBUG 0        // Set to 1 to activate debug code
@@ -307,6 +309,13 @@ void loop () {
         s_data = *(s_payload_t*) rf12_data;
         switch (s_data.type)
 	{
+            case 'a':  // Appliance power measurement
+                {
+                  showString(PSTR("a "));
+                  Serial.print(s_data.var1);
+                  showString(PSTR(" "));
+                  break;
+                }
 	    case 'e':   // Electricity data
                 {
                   showString(PSTR("e "));
