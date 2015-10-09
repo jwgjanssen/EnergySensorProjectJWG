@@ -1,0 +1,16 @@
+// ApplianceNode
+// -------------
+// Node connected to a CT current sensor.
+// Node address: 868 Mhz, net group 5, node 6.
+// Local sensors: - CT current sensor (SCT013)
+// Receives:      - 
+// Sends:         - (a) appliance power readings (from ApplianceNode)
+// Other:         - 
+//
+// Author: Jos Janssen
+// Modifications:
+// Date:        Who:    Added:
+// 28nov2013    Jos     Initial version.
+// 08oct2015    Jos     Changed Node address.
+//
+// EmonLibrary examples openenergymonitor.org, Licence GNU GPL V3
