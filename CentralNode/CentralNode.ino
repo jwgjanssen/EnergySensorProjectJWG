@@ -8,9 +8,11 @@
 // Receives:      - (a) appliance power readings (from ApplianceNode)
 //                - (e) electricity readings (from SensorNode)
 //                - (g) gas readings (from SensorNode)
+//                - (w) water readings (from SensorNode)
 //                - (i) inside temperature (from GLCDNode)
 //                - (s) solar readings (from SolarNode)
-//                - (x) current eeprom sensor trigger values (from SensorNode)
+//                - (l) current eeprom sensor trigger values (from SensorNode)
+//                - (x) adjusted water sensor trigger values (from SensorNode)
 //                - (y) adjusted gas sensor trigger values (from SensorNode)
 //                - (z) adjusted electricity sensor trigger values (from SensorNode)
 // Sends:         - (1) electricity actual usage (to GLCDNode)
@@ -61,6 +63,7 @@
 // 31aug2013    Jos     Removed ethercard code and reporting to xively.com (reporting moved to jnread)
 // 02oct2013    Jos     Using rf12_sendNow in stead of rf12_easySend & rf12_easyPoll. Removed rf12ResetMetro code
 // 28nov2013    Jos     Added code for receiving appliance-power measurements via type "a".
+// 09oct2015    Jos     Added code for supporting water sensor
 
 
 #define DEBUG 0        // Set to 1 to activate debug code
@@ -124,8 +127,8 @@ s_payload_t s_data;
 typedef struct { char type;
                  int minA; int maxA; int minB; int maxB;
                  int minC; int maxC; int minD; int maxD;
-} x_payload_t;  // Status data payload, size = 17 bytes
-x_payload_t x_data;
+} l_payload_t;  // Status data payload, size = 17 bytes
+l_payload_t l_data;
 
 typedef struct {  byte type;
                   int value;
@@ -141,6 +144,7 @@ eeprom_command_t change_eeprom;
 // vars for measurement
 int watt = 0;
 int gas = 0;
+int water = 0;
 int itemp = 0;
 int otemp = 0;
 int opres = 0;
@@ -309,7 +313,7 @@ void loop () {
         s_data = *(s_payload_t*) rf12_data;
         switch (s_data.type)
 	{
-            case 'a':  // Appliance power measurement
+      case 'a':  // Appliance power measurement
                 {
                   showString(PSTR("a "));
                   Serial.print(s_data.var1);
@@ -333,7 +337,15 @@ void loop () {
                   Serial.print(s_data.var2);
                  break;
                 }
-            case 'i':  // Inside temperature
+      case 'w':  // Gas data
+                {
+                  showString(PSTR("w "));
+                  Serial.print(s_data.var1);
+                  showString(PSTR(" "));
+                  Serial.print(s_data.var2);
+                 break;
+                }
+      case 'i':  // Inside temperature
                 {
                   showString(PSTR("i "));
                   Serial.print(s_data.var1);
@@ -342,7 +354,7 @@ void loop () {
                   showString(PSTR(" "));
                   break;
                 }
-            case 's':  // Solar data
+      case 's':  // Solar data
                 {
                   showString(PSTR("s "));
                   Serial.print(s_data.var1);
@@ -353,7 +365,7 @@ void loop () {
                   Serial.print(s_data.var3);
                   break;
                 }
-            /*case 't':  // Time data (disabled, sensor is local, so no data to receive from rf12)
+      /*case 't':  // Time data (disabled, sensor is local, so no data to receive from rf12)
                 {
                   showString(PSTR("t "));
                   Serial.print(s_data.var1);showString(PSTR(":"));Serial.print(s_data.var2);
@@ -361,7 +373,7 @@ void loop () {
                   showString(PSTR(" "));
                   break;
                 }*/
-            /* case 'o':  // Outside temperature (disabled, sensor is local, so no data to receive from rf12)
+     /* case 'o':  // Outside temperature (disabled, sensor is local, so no data to receive from rf12)
                 {
                   showString(PSTR("o "));
                   Serial.print(s_data.var1);
@@ -369,7 +381,7 @@ void loop () {
                   showString(PSTR(" "));
                   break;
                 } */
-            /* case 'p':  // Outside pressure (disabled, sensor is local, so no data to receive from rf12)
+     /* case 'p':  // Outside pressure (disabled, sensor is local, so no data to receive from rf12)
                 {
                   showString(PSTR("p "));
                   Serial.print(s_data.var1);
@@ -386,51 +398,60 @@ void loop () {
             rf12_sendStart(RF12_ACK_REPLY, 0, 0);
         }
         Serial.println("");
-      } else if (rf12_len == sizeof (x_payload_t)) {
-        x_data = *(x_payload_t*) rf12_data;
-        switch (x_data.type)
+      } else if (rf12_len == sizeof (l_payload_t)) {
+        l_data = *(l_payload_t*) rf12_data;
+        switch (l_data.type)
 	{
-       	    case 'x':  // display sensor settings
+       	    case 'l':  // display sensor settings
                 {
-                  showString(PSTR("x "));
+                  showString(PSTR("l "));
                   showString(PSTR("min-max: L:"));
-                  Serial.print(x_data.minA);
+                  Serial.print(l_data.minA);
                   showString(PSTR("->"));
-                  Serial.print(x_data.maxA);
+                  Serial.print(l_data.maxA);
                   showString(PSTR(", R:"));
-                  Serial.print(x_data.minB);
+                  Serial.print(l_data.minB);
                   showString(PSTR("->"));
-                  Serial.print(x_data.maxB);
+                  Serial.print(l_data.maxB);
                   showString(PSTR(", G:"));
-                  Serial.print(x_data.minC);
+                  Serial.print(l_data.minC);
                   showString(PSTR("->"));
-                  Serial.print(x_data.maxC);
+                  Serial.print(l_data.maxC);
                   showString(PSTR(", W:"));
-                  Serial.print(x_data.minD);
+                  Serial.print(l_data.minD);
                   showString(PSTR("->"));
-                  Serial.print(x_data.maxD);
+                  Serial.print(l_data.maxD);
                   break;
                 }
-       	    case 'y':  // display adjusted gas sensor trigger values
+       	    case 'x':  // display adjusted water sensor trigger values
+                {
+                  showString(PSTR("x "));
+                  showString(PSTR("Adjusted water sensor trigger values: "));
+                  Serial.print(l_data.minA);
+                  showString(PSTR("->"));
+                  Serial.print(l_data.maxA);
+                  break;
+                }
+            case 'y':  // display adjusted gas sensor trigger values
                 {
                   showString(PSTR("y "));
                   showString(PSTR("Adjusted gas sensor trigger values: "));
-                  Serial.print(x_data.minA);
+                  Serial.print(l_data.minA);
                   showString(PSTR("->"));
-                  Serial.print(x_data.maxA);
+                  Serial.print(l_data.maxA);
                   break;
                 }
        	    case 'z':  // display adjusted gas sensor trigger values
                 {
                   showString(PSTR("z "));
                   showString(PSTR("Adjusted electricity sensor trigger values: L:"));
-                  Serial.print(x_data.minA);
+                  Serial.print(l_data.minA);
                   showString(PSTR("->"));
-                  Serial.print(x_data.maxA);
+                  Serial.print(l_data.maxA);
                   showString(PSTR(" R:"));
-                  Serial.print(x_data.minB);
+                  Serial.print(l_data.minB);
                   showString(PSTR("->"));
-                  Serial.print(x_data.maxB);
+                  Serial.print(l_data.maxB);
                   break;
                 }
 	    default:
