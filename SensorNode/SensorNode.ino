@@ -7,26 +7,32 @@
 // Receives:      - eeprom data (eeprom contains sensor trigger values) (from CentralNode)
 // Sends:         - (e) electricity readings (to CentralNode)
 //                - (g) gas readings (to CentralNode)
-//                - (x) current eeprom sensor trigger values (to CentralNode)
+//                - (w) water readings (to CentralNode)
+//                - (l) list current eeprom sensor trigger values (to CentralNode)
+//                - (x) adjusted water sensor trigger values (to CentralNode)
 //                - (y) adjusted gas sensor trigger values (to CentralNode)
 //                - (z) adjusted electricity sensor trigger values (to CentralNode)
 // Other:         - 
 //
 // Author: Jos Janssen
 // Modifications:
-// Date:        Who:	Added:
-// 20jan2012    Jos	Receive command for reading/writing eeprom of sensor node
-// 02jul2012    Jos	Changed vars for use with millis() from long to unsigned long
-// 02jul2012	Jos	Added overflow protection for use with millis()
-// 30aug2012	Jos	Because power sometimes showed erratic value when direction had changed,
+// Date:        Who:    Added:
+// 20jan2012    Jos     Receive command for reading/writing eeprom of sensor node
+// 02jul2012    Jos     Changed vars for use with millis() from long to unsigned long
+// 02jul2012    Jos     Added overflow protection for use with millis()
+// 30aug2012    Jos     Because power sometimes showed erratic value when direction had changed,
 //                        the time- and power-calculation has been adapted
-// 31aug2012	Jos	Changed layout/readability/comments
+// 31aug2012    Jos     Changed layout/readability/comments
 // 09sep2012    Jos     Included code for 8 second watchdog reset
 // 15feb2013    Jos     Added code to re-initialze the rf12 every one week to avoid hangup after a long time
 // 15feb2013    Jos     Changed sampleMetro from 5 to 2 ms
 // 04mar2013    Jos     Added code to update eeprom sensor trigger values once a week
 // 19mar2013    Jos     Optimized communication structures for rf12
 // 02oct2013    Jos     Using rf12_sendNow in stead of rf12_easySend & rf12_easyPoll. Removed rf12ResetMetro code
+// 09oct2015    Jos     Changed data type letter coding due to future addition of water sensor
+// 09oct2015    Jos     Added code for handling water sensor
+// 04Nov2015    Jos     Solved bug in reporting adjusted water sensor trigger values
+// 19Nov2015    Jos     Solved bug in calculating mean water sensor trigger values
 
 #include <JeeLib.h>
 #include <Metro.h>
@@ -44,12 +50,14 @@ ISR(WDT_vect) { Sleepy::watchdogEvent(); }
 
 // **** START of var declarations ****
 
-// what is connected to which prot on JeeNode
+// what is connected to which port on JeeNode
 Port portLeft (1);
 Port portRight (2);
 Port electr_led (1);
 Port portGas (3);
 Port gas_led (3);
+Port portWater (4);
+Port water_led (4);
 
 // structures for rf12 communication
 typedef struct { char type;
@@ -62,8 +70,8 @@ s_payload_t s_data;
 typedef struct { char type;
 	         int minA; int maxA; int minB; int maxB;
 	         int minC; int maxC; int minD; int maxD;
-} x_payload_t;  // Status data payload, size = 17 bytes
-x_payload_t x_data;
+} l_payload_t;  // Status data payload, size = 17 bytes
+l_payload_t l_data;
 
 typedef struct { char command[5];
                  int value;
@@ -73,10 +81,11 @@ eeprom_command_t change_eeprom;
 // timers
 Metro sampleMetro = Metro(2);            // Sample the sensors every 2 ms
 Metro wdtMetro = Metro(1000);            // reset watchdog timer every 1 sec
-Metro EeepromMetro = Metro(604800000);   // write mean measured electricitysensor trigger values to eeprom every 1 week
-Metro GeepromMetro = Metro(604800000);   // write mean measured gassensor trigger values to eeprom every 1 week
-//Metro EeepromMetro = Metro(86400000);   // write mean measured electricitysensor trigger values to eeprom every day
-//Metro GeepromMetro = Metro(86400000);   // write mean measured gassensor trigger values to eeprom every day
+Metro EeepromMetro = Metro(604800000);   // write mean measured electricity sensor trigger values to eeprom every 1 week
+Metro GeepromMetro = Metro(604800000);   // write mean measured gas sensor trigger values to eeprom every 1 week
+Metro WeepromMetro = Metro(604800000);   // write mean measured water sensor trigger values to eeprom every 1 week
+//Metro EeepromMetro = Metro(86400000);   // write mean measured electricity sensor trigger values to eeprom every day
+//Metro GeepromMetro = Metro(86400000);   // write mean measured gas sensor trigger values to eeprom every day
 
 // vars read from eeprom
 int minLeft;
@@ -85,15 +94,19 @@ int minRight;
 int maxRight;
 int minGas;
 int maxGas;
+int minWater;
+int maxWater;
 
 // vars for the sensor readings
 boolean stateLeft = 0;
 boolean stateRight = 0;
 boolean stateGas = 0;
+boolean stateWater = 0;
 
 int lightLeft = 0;  // latest reading left electricity sensor
 int lightRight = 0; // latest reading right electricity sensor
 int lightGas = 0;   // latest reading gas sensor
+int lightWater = 0; // latest reading water sensor
 
 int mminLeft = 1024;
 int mmaxLeft = 0;
@@ -101,12 +114,16 @@ int mminRight = 1024;
 int mmaxRight = 0;
 int mminGas = 1024;
 int mmaxGas = 0;
+int mminWater = 1024;
+int mmaxWater = 0;
 int currMinLeft = 1024;
 int currMaxLeft = 0;
 int currMinRight = 1024;
 int currMaxRight = 0;
 int currMinGas = 1024;
 int currMaxGas = 0;
+int currMinWater = 1024;
+int currMaxWater = 0;
 
 // vars for timing/counting
 int e_direction = 1;        // 1=forward(normal), -1=backward
@@ -119,6 +136,9 @@ long watt = 0;
 long g_rotations = 0;
 long gas_ltr = 0;
 
+long w_rotations = 0;
+long water_ltr = 0;
+
 unsigned long Ms = 0;         // timestamp of current peak
 unsigned long prevMs = 0;     // timestamp of last peak
 unsigned long prevprevMs = 0; // timestamp of 2nd last peak
@@ -130,6 +150,9 @@ int e_onceDisplayed = 0;
 
 int g_onceDone = 0;
 int g_onceDisplayed = 0;
+
+int w_onceDone = 0;
+int w_onceDisplayed = 0;
 
 // vars for reading, changing or reporting eeprom values
 typedef struct { int e_minL, e_maxL;
@@ -153,16 +176,24 @@ typedef struct { int e_minL, e_maxL;
 typedef struct { int g_min, g_max;
 } Gset;
 
+typedef struct { int w_min, w_max;
+} Wset;
+
 Eset Evalues[10];
 Gset Gvalues[10];
+Wset Wvalues[10];
 boolean do_save_Evalues = 0;
 boolean do_save_Gvalues = 0;
+boolean do_save_Wvalues = 0;
 int Ecounter;
 char Ei;
 int Gcounter;
 char Gi;
+int Wcounter;
+char Wi;
 int meanMinL, meanMaxL, meanMinR, meanMaxR;
 int meanMinG, meanMaxG;
+int meanMinW, meanMaxW;
 
 // **** END of var declarations ****
 
@@ -197,6 +228,8 @@ void read_eeprom() {
     maxRight=rconfig.e_maxR;
     minGas=rconfig.g_min;
     maxGas=rconfig.g_max;
+    minWater=rconfig.w_min;
+    maxWater=rconfig.w_max;
 }
 
 
@@ -227,21 +260,21 @@ void write_eeprom() {
 
 
 void report_settings() {
-    x_data.type='x';
-    x_data.minA=rconfig.e_minL;
-    x_data.maxA=rconfig.e_maxL;
-    x_data.minB=rconfig.e_minR;
-    x_data.maxB=rconfig.e_maxR;
-    x_data.minC=rconfig.g_min;
-    x_data.maxC=rconfig.g_max;
-    x_data.minD=rconfig.w_min;
-    x_data.maxD=rconfig.w_max;
+    l_data.type='l';
+    l_data.minA=rconfig.e_minL;
+    l_data.maxA=rconfig.e_maxL;
+    l_data.minB=rconfig.e_minR;
+    l_data.maxB=rconfig.e_maxR;
+    l_data.minC=rconfig.g_min;
+    l_data.maxC=rconfig.g_max;
+    l_data.minD=rconfig.w_min;
+    l_data.maxD=rconfig.w_max;
     
     // send report
     #if DEBUG
       Serial.print("Sending report ... ");
     #endif
-    rf12_sendNow(0, &x_data, sizeof x_data);
+    rf12_sendNow(0, &l_data, sizeof l_data);
     #if DEBUG
       Serial.println("OK");
     #endif
@@ -320,7 +353,7 @@ void init_rf12 () {
 void setup() {
     #if DEBUG
       Serial.begin(57600);
-      Serial.println("\n[Monitoring a Electricity & Gas Meter]");
+      Serial.println("\n[Monitoring a Electricity & Gas & Water meter]");
     #endif
     init_rf12();
     portLeft.mode(INPUT);
@@ -328,6 +361,8 @@ void setup() {
     electr_led.mode(OUTPUT);
     portGas.mode(INPUT);
     gas_led.mode(OUTPUT);
+    portWater.mode(INPUT);
+    water_led.mode(OUTPUT);
 
     // initialise min-max values for sensors
     read_eeprom();
@@ -337,17 +372,13 @@ void setup() {
 
   
 void loop() {
-    // re-initialize rf12 every week to avoid rf12 hangup after a long time
-    // if ( rf12ResetMetro.check() ) {
-    //      init_rf12();
-    // }
-
     // take a reading from the sensors 
     if ( sampleMetro.check() ) {
          // read sensors
          lightLeft=portLeft.anaRead();
          lightRight=portRight.anaRead();
          lightGas=portGas.anaRead();
+         lightWater=portWater.anaRead();
 
          // to monitor changing peak & valley sizes, we follow the sizes continuously
          // the found sizes serve as the target for the next detection
@@ -376,91 +407,98 @@ void loop() {
              currMinGas=lightGas;
          }
 
+         // update minimum and maximum for the water sensor
+         if ( lightWater > currMaxWater ) {
+             currMaxWater=lightWater;
+         }  
+         if ( lightWater < currMinWater ) {
+             currMinWater=lightWater;
+         }
          //
          // Electricity:
          //   Normally the state = 0. When the painted mark on the disc is at the sensor, the state = 1.
          //   The mark is the least reflective part of the disc, giving the highest sensor value readout.
          //
          if ( (stateLeft == 0) && (lightLeft > maxLeft) ) {  // the mark is at the left sensor, light above threshold
-             stateLeft=1;
+           stateLeft=1;
+           #if DEBUG                    
+              Serial.println("L1");
+           #endif
+           if ( (stateRight==0) && (e_direction==-1) ) {  // calculate rotation direction
+             e_prev_direction=-1;  // save previous direction
+             e_direction=1;
+		         direction_changed=1;
              #if DEBUG                    
-                 Serial.println("L1");
+                Serial.println("-1 > 1");
              #endif
-             if ( (stateRight==0) && (e_direction==-1) ) {  // calculate rotation direction
-                 e_prev_direction=-1;  // save previous direction
-                 e_direction=1;
-		 direction_changed=1;
-                 #if DEBUG                    
-                     Serial.println("-1 > 1");
-                 #endif
-             } else if ( (stateRight==1) && (e_direction==1) ) {
-                 e_prev_direction=1;  // save previous direction
-                 e_direction=-1;
-		 direction_changed=1;
-                 #if DEBUG                    
-                     Serial.println("1 > -1");
-                 #endif
+           } else if ( (stateRight==1) && (e_direction==1) ) {
+             e_prev_direction=1;  // save previous direction
+             e_direction=-1;
+		         direction_changed=1;
+             #if DEBUG                    
+                Serial.println("1 > -1");
+             #endif
+           }
+	         e_report_direction=e_direction;  // direction power calculations is the current direction
+           if ( e_onceDone == 0) {
+		         if (direction_changed) {
+               // calculate time between the last two peaks, now and prevprevMs (because of direction change)
+               //   timed only once during stateLeft = 1
+               Ms=millis(); // 4 bytes, 32 bits, = 49.7 days
+               if (Ms < prevprevMs) {	// Overflow protection (use preprevMs because of direction change)
+                 rotationMs=(4294967295-prevprevMs)+Ms;
+               } else {
+                   rotationMs=Ms-prevprevMs;             
+               }
+               prevprevMs=prevMs;
+               prevMs=Ms;
+               e_onceDone=1;
+               e_onceDisplayed=0;
+		           direction_changed=0;
+		           e_report_direction=e_prev_direction;  // direction for power calculations is the previous direction,
+                                                     //   because no full rotation has been made the timing is of.
+                                                     //   To compensate, prevprevMs is used. To display a sensible
+                                                     //   powervalue, the previous direction is used here.
+		         } else {
+               // calculate time between the last two peaks, now and prevMs timed only once during stateLeft = 1
+               Ms=millis(); // 4 bytes, 32 bits, = 49.7 days
+               if (Ms < prevMs) {	// Overflow protection
+                 rotationMs=(4294967295-prevMs)+Ms;
+               } else {
+                 rotationMs=Ms-prevMs;             
+               }
+		           prevprevMs=prevMs;
+               prevMs=Ms;
+               e_onceDone=1;
+               e_onceDisplayed=0;
              }
-	     e_report_direction=e_direction;  // direction power calculations is the current direction
-             if ( e_onceDone == 0) {
-		 if (direction_changed) {
-                     // calculate time between the last two peaks, now and prevprevMs (because of direction change)
-                     //   timed only once during stateLeft = 1
-                     Ms=millis(); // 4 bytes, 32 bits, = 49.7 days
-                     if(Ms < prevprevMs) {	// Overflow protection (use preprevMs because of direction change)
-                         rotationMs=(4294967295-prevprevMs)+Ms;
-                     } else {
-                         rotationMs=Ms-prevprevMs;             
-                     }
-                     prevprevMs=prevMs;
-                     prevMs=Ms;
-                     e_onceDone=1;
-                     e_onceDisplayed=0;
-		     direction_changed=0;
-		     e_report_direction=e_prev_direction;  // direction for power calculations is the previous direction,
-                                                           //   because no full rotation has been made the timing is of.
-                                                           //   To compensate, prevprevMs is used. To display a sensible
-                                                           //   powervalue, the previous direction is used here.
-		 } else {
-                     // calculate time between the last two peaks, now and prevMs timed only once during stateLeft = 1
-                     Ms=millis(); // 4 bytes, 32 bits, = 49.7 days
-                     if(Ms < prevMs) {	// Overflow protection
-                         rotationMs=(4294967295-prevMs)+Ms;
-                     } else {
-                         rotationMs=Ms-prevMs;             
-                     }
-		     prevprevMs=prevMs;
-                     prevMs=Ms;
-                     e_onceDone=1;
-                     e_onceDisplayed=0;
-                 }
-             }
-             mminLeft=currMinLeft;  // going to minimum, reset minimum value of left sensor
-             currMinLeft=1024;
+           }
+           mminLeft=currMinLeft;  // going to minimum, reset minimum value of left sensor
+           currMinLeft=1024;
          } else if ( (stateLeft == 1) && (lightLeft < minLeft) ) {  // the mark is not at the left sensor, light below threshold
-             stateLeft=0;
-             #if DEBUG                    
-                 Serial.println("L0");
-             #endif
-             mmaxLeft=currMaxLeft;  // going to a maximum, reset maximum value of left sensor
-             currMaxLeft=0;
-             e_onceDone=0; // reset e_onceDone in a minimum
+           stateLeft=0;
+           #if DEBUG                    
+              Serial.println("L0");
+           #endif
+           mmaxLeft=currMaxLeft;  // going to a maximum, reset maximum value of left sensor
+           currMaxLeft=0;
+           e_onceDone=0; // reset e_onceDone in a minimum
          }
           
          if ( (stateRight == 0) && (lightRight > maxRight) ) {  // the mark is at the right sensor, light below threshold
-             stateRight=1;
-             #if DEBUG                    
-                 Serial.println("R1");
-             #endif
-             mminRight=currMinRight;  // going to a minimum, reset minimum value of right sensor
-             currMinRight=1024;
+           stateRight=1;
+           #if DEBUG                    
+              Serial.println("R1");
+           #endif
+           mminRight=currMinRight;  // going to a minimum, reset minimum value of right sensor
+           currMinRight=1024;
          } else if ( (stateRight == 1) && (lightRight < minRight) ) {  // the mark is not at the right sensor, light above threshold
-             stateRight=0;
-             #if DEBUG                    
-                 Serial.println("R0");
-             #endif
-             mmaxRight=currMaxRight;  // going to a maximum, reset maximum value of right sensor
-             currMaxRight=0;
+           stateRight=0;
+           #if DEBUG                    
+              Serial.println("R0");
+           #endif
+           mmaxRight=currMaxRight;  // going to a maximum, reset maximum value of right sensor
+           currMaxRight=0;
          }
          
          //
@@ -469,48 +507,69 @@ void loop() {
          //   The mirror is the most reflective part of the counter, giving the lowest sensor value readout.
          //
          if ( (stateGas == 0) && (lightGas < minGas) ) {  //  the mirror is at the sensor, light below threshold
-             stateGas=1;
-             #if DEBUG                    
-                 Serial.println("G1");
-             #endif
-             mmaxGas=currMaxGas;  // going to a maximum, reset maximum value of Gas sensor
-             currMaxGas=0;
-             // Set appropriate values only once in during stateGas = 1
-             if (g_onceDone == 0) {
-                 g_onceDone=1;
-                 g_onceDisplayed=0;
-             }
+           stateGas=1;
+           #if DEBUG                    
+              Serial.println("G1");
+           #endif
+           mmaxGas=currMaxGas;  // going to a maximum, reset maximum value of Gas sensor
+           currMaxGas=0;
+           // Set appropriate values only once in during stateGas = 1
+           if (g_onceDone == 0) {
+             g_onceDone=1;
+             g_onceDisplayed=0;
+           }
          } else if ( (stateGas == 1) && (lightGas > maxGas) ) {  // the mirror is not at the sensor, light above threshold
-             stateGas=0;
-             #if DEBUG                    
-                 Serial.println("G0");
-             #endif
-             mminGas=currMinGas;  // going to a minimum, reset minimum value of Gas sensor
-             currMinGas=1024;
-             g_onceDone=0; // reset g_onceDone in a minimum
+           stateGas=0;
+           #if DEBUG                    
+              Serial.println("G0");
+           #endif
+           mminGas=currMinGas;  // going to a minimum, reset minimum value of Gas sensor
+           currMinGas=1024;
+           g_onceDone=0; // reset g_onceDone in a minimum
          }
-         
-    }
+
+         //
+         // Water:
+         //   Normally the state = 0. When the 0 with the little "mirror" is at the sensor, the state = 1.
+         //   The mirror is the most reflective part of the counter, giving the lowest sensor value readout.
+         //
+         if ( (stateWater == 0) && (lightWater < minWater) ) {  //  the mirror is at the sensor, light below threshold
+           stateWater=1;
+           #if DEBUG                    
+              Serial.println("W1");
+           #endif
+           mmaxWater=currMaxWater;  // going to a maximum, reset maximum value of Water sensor
+           currMaxWater=0;
+           // Set appropriate values only once in during stateWater = 1
+           if (w_onceDone == 0) {
+             w_onceDone=1;
+             w_onceDisplayed=0;
+           }
+         } else if ( (stateWater == 1) && (lightWater > maxWater) ) {  // the mirror is not at the sensor, light above threshold
+           stateWater=0;
+           #if DEBUG                    
+              Serial.println("W0");
+           #endif
+           mminWater=currMinWater;  // going to a minimum, reset minimum value of Water sensor
+           currMinWater=1024;
+           w_onceDone=0; // reset w_onceDone in a minimum
+         }
+    } /* if ( sampleMetro.check() ) */
+
+    
         
-        
+    // Electricity:
     // print current status when in maximum and not displayed before in this maximum
     if ((e_onceDone == 1)&&(e_onceDisplayed == 0)&&(maxLeft-minLeft > 50) ) {
-
         watt=e_report_direction*6000000/rotationMs; // my kwh meter says 600 rotations per kwh
-                                     //watt = e_direction * 3600000/(600*(tempDelay/1000));
-        
         // count rotations only if the number of watts is sensible
         if ((watt > -600)&&(watt < 7500)) {
-            e_rotations=e_rotations+e_direction; // = +1 when e_direction=1, = -1 when e_direction=-1
-            flashd(electr_led);
+          e_rotations=e_rotations+e_direction; // = +1 when e_direction=1, = -1 when e_direction=-1
+          flashd(electr_led);
         }
-        
         s_data.type='e'; // type is electricity data
         s_data.var1=watt;
         s_data.var2=e_rotations;
-        /* s_data.rotationMs=rotationMs;
-        s_data.minA=mminLeft; s_data.maxA=mmaxLeft;
-        s_data.minB=mminRight; s_data.maxB=mmaxRight;*/
         rf12_sendNow(0, &s_data, sizeof s_data);
         #if DEBUG                    
           Serial.print("e ");
@@ -559,10 +618,10 @@ void loop() {
             write_eeprom();
             read_eeprom();
             // Send the adjusted electricity sensor trigger values
-            x_data.type='z'; // type is electricity sensor trigger values
-            x_data.minA=wconfig.e_minL; x_data.maxA=wconfig.e_maxL;
-            x_data.minB=wconfig.e_minR; x_data.maxB=wconfig.e_maxR;
-            rf12_sendNow(0, &x_data, sizeof x_data);
+            l_data.type='z'; // type is electricity sensor trigger values
+            l_data.minA=wconfig.e_minL; l_data.maxA=wconfig.e_maxL;
+            l_data.minB=wconfig.e_minR; l_data.maxB=wconfig.e_maxR;
+            rf12_sendNow(0, &l_data, sizeof l_data);
             #if DEBUG                    
               Serial.print("z ");
               Serial.print("Adjusted electricity sensor trigger values: L:");
@@ -579,19 +638,15 @@ void loop() {
         }
     }
     
-    
+    // Gas:
     // print current status when in maximum and not displayed before in this maximum
     if ((g_onceDone == 1)&&(g_onceDisplayed == 0)&&(maxGas-minGas > 50) ) {
         gas_ltr=gas_ltr+10;
-       
         g_rotations++;
         flashd(gas_led);
-
         s_data.type='g'; // type is gas data
         s_data.var1=gas_ltr;
         s_data.var2=g_rotations;
-        /* s_data.rotationMs=rotationMs;
-        s_data.minC=mminGas; s_data.maxC=mmaxGas;*/
         rf12_sendNow(0, &s_data, sizeof s_data);
         #if DEBUG                    
           Serial.print("g ");
@@ -631,9 +686,9 @@ void loop() {
             write_eeprom();
             read_eeprom();
             // Send the adjusted gas sensor trigger values
-            x_data.type='y'; // type is gas sensor trigger values
-            x_data.minA=wconfig.g_min; x_data.maxA=wconfig.g_max;
-            rf12_sendNow(0, &x_data, sizeof x_data);
+            l_data.type='y'; // type is gas sensor trigger values
+            l_data.minA=wconfig.g_min; l_data.maxA=wconfig.g_max;
+            rf12_sendNow(0, &l_data, sizeof l_data);
             #if DEBUG                    
               Serial.print("y ");
               Serial.print("Adjusted gas sensor trigger values: ");
@@ -645,24 +700,87 @@ void loop() {
           }
         }
     }
+
+    // Water:
+    // print current status when in maximum and not displayed before in this maximum
+    if ((w_onceDone == 1)&&(w_onceDisplayed == 0)&&(maxWater-minWater > 50) ) {
+        water_ltr=water_ltr+1;
+        w_rotations++;
+        flashd(water_led);
+        s_data.type='w'; // type is water data
+        s_data.var1=water_ltr;
+        s_data.var2=w_rotations;
+        rf12_sendNow(0, &s_data, sizeof s_data);
+        #if DEBUG                    
+          Serial.print("w ");
+          Serial.print(water_ltr);
+          Serial.print(" Liter, count=");
+          Serial.print(w_rotations);
+          Serial.print(",   measured min-max: ");
+          Serial.print(mminWater);
+          Serial.print("->");
+          Serial.print(mmaxWater);
+          Serial.println("");
+        #endif
+        w_onceDisplayed=1;
+        
+        if (do_save_Wvalues) {
+          #if DEBUG
+            Serial.print("Enter do_save_Wvalues "); Serial.println(Wcounter);
+          #endif
+          Wvalues[Wcounter].w_min=mminWater;  Wvalues[Wcounter].w_max=mmaxWater;
+          Wcounter++;
+          if (Wcounter > 9) {
+            do_save_Wvalues=0;
+            meanMinW=0; meanMaxW=0;
+            for (Wi=0; Wi < 10; Wi++) {
+              meanMinW+=Wvalues[Wi].w_min; meanMaxW+=Wvalues[Wi].w_max;
+            }
+            meanMinW=meanMinW/10; meanMaxW=meanMaxW/10;
+            // fill all eeprom trigger values
+            wconfig.e_minL=rconfig.e_minL;
+            wconfig.e_maxL=rconfig.e_maxL;
+            wconfig.e_minR=rconfig.e_minR;
+            wconfig.e_maxR=rconfig.e_maxR;
+            wconfig.g_min=rconfig.g_min;
+            wconfig.g_max=rconfig.g_max;
+            wconfig.w_min=meanMinW+75;
+            wconfig.w_max=meanMaxW-150;
+            write_eeprom();
+            read_eeprom();
+            // Send the adjusted water sensor trigger values
+            l_data.type='x'; // type is water sensor trigger values
+            l_data.minA=wconfig.w_min; l_data.maxA=wconfig.w_max;
+            rf12_sendNow(0, &l_data, sizeof l_data);
+            #if DEBUG                    
+              Serial.print("x ");
+              Serial.print("Adjusted water sensor trigger values: ");
+              Serial.print(wconfig.w_min);
+              Serial.print("->");
+              Serial.print(wconfig.w_max);
+              Serial.println("");
+            #endif
+          }
+        }
+    }
     
     // receive command for changing eeprom values or report settings
     if (rf12_recvDone() && rf12_crc == 0 && rf12_len == sizeof (eeprom_command_t)) {
-        change_eeprom=*(eeprom_command_t*) rf12_data;
-        interpret_command();
-        if (RF12_WANTS_ACK) {
-            rf12_sendStart(RF12_ACK_REPLY, 0, 0);
-        }
-        delay(10);
-        if (do_write) {
-            write_eeprom();
-            read_eeprom();
-            do_write=0;
-        }
-        if (do_report) {
-            report_settings();
-            do_report=0;
-        }
+      change_eeprom=*(eeprom_command_t*) rf12_data;
+      interpret_command();
+      if (RF12_WANTS_ACK) {
+        rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+      }
+      delay(10);
+      if (do_write) {
+        write_eeprom();
+        read_eeprom();
+        do_write=0;
+      }
+      if (do_report) {
+        report_settings();
+        do_report=0;
+      }
     }
         
     if ( wdtMetro.check() ) {
@@ -677,6 +795,11 @@ void loop() {
     if ( GeepromMetro.check() ) {
       do_save_Gvalues=1;
       Gcounter=0;
+    }
+
+    if ( WeepromMetro.check() ) {
+      do_save_Wvalues=1;
+      Wcounter=0;
     }
 }
 
