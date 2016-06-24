@@ -16,6 +16,7 @@
 // 30oct2013    Jos   Solved display backlight bug (stayed at level 75 all the time)
 // 20oct2014    Jos   Added code to keep correct counters for Daily Operating Time and Gridoutput of the Soladin
 //                      after being non-responsive during the day due to bad weather or solar eclipse.
+// 24jun2016    Jos   Solved bug in sending solar data to Central Node (Actual data was sent, in stead of corrected data)
 
 #include <JeeLib.h>
 #include <StopWatch.h>
@@ -194,8 +195,8 @@ void SDisplaySleep() {
 void sendSolar() {
   s_data.type='s';
   s_data.var1=sol.Gridpower;     // = Actual production in W
-  s_data.var2=sol.Gridoutput*10; // = kWh today * 1000
-  s_data.var3=sol.DailyOpTm*5;  // = running time today in minutes
+  s_data.var2=Gridoutput*10;     // = kWh today * 1000
+  s_data.var3=DailyOpTm*5;       // = running time today in minutes
   rf12_sendNow(0, &s_data, sizeof s_data);
 }
 
