@@ -35,7 +35,7 @@ typedef struct { char type;
 s_payload_t s_data;
 
 // timers
-Metro sendMetro = Metro(30000);          // send solar data every 1 min
+Metro sendMetro = Metro(30000);        // send data every 1 min
 
 EnergyMonitor emon1;                   // Create an instance
 double Irms;
@@ -71,7 +71,7 @@ void loop()
     Serial.println(Irms);	       // Irms
   #endif
   
-  // send solar data to Central Node 
+  // send appliance data to Central Node 
   if ( sendMetro.check() ) {
     sendAppliancePower();
   }
