@@ -6,6 +6,7 @@
 //                - barometric pressure (BMP085)
 //                - DCF77 time module
 // Receives:      - (a) appliance power readings (from ApplianceNode)
+//                - (b) light sensor readings (from LightNode)
 //                - (e) electricity readings (from SensorNode)
 //                - (g) gas readings (from SensorNode)
 //                - (w) water readings (from SensorNode)
@@ -62,8 +63,9 @@
 // 15may2013    Jos     cosm.com was replaced by xively.com
 // 31aug2013    Jos     Removed ethercard code and reporting to xively.com (reporting moved to jnread)
 // 02oct2013    Jos     Using rf12_sendNow in stead of rf12_easySend & rf12_easyPoll. Removed rf12ResetMetro code
-// 28nov2013    Jos     Added code for receiving appliance-power measurements via type "a".
+// 28nov2013    Jos     Added code for receiving appliance-power measurements via type "a"
 // 09oct2015    Jos     Added code for supporting water sensor
+// 27sep2016    Jos     Added code for receiving light sensor measurements via type "b"
 
 
 #define DEBUG 0        // Set to 1 to activate debug code
@@ -317,7 +319,16 @@ void loop () {
                 {
                   showString(PSTR("a "));
                   Serial.print(s_data.var1);
-                  showString(PSTR(" "));
+                  break;
+                }
+      case 'b':  // Light sensor data
+                {
+                  showString(PSTR("b "));
+                  Serial.print(s_data.var1);
+				  showString(PSTR(" "));
+				  Serial.print(s_data.var2);
+				  showString(PSTR(" "));
+				  Serial.print(s_data.var3);
                   break;
                 }
 	    case 'e':   // Electricity data
