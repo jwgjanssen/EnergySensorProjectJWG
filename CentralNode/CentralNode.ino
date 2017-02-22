@@ -32,8 +32,8 @@
 //			emxr,<value>.	set maximum trigger of right electricity sensor to <value>
 //			gmin,<value>.	set minimum trigger of gas sensor to <value>
 //			gmax,<value>.	set maximum trigger of gas sensor to <value>
-//			wmin,<value>.	set minimum trigger of water sensor to <value> (Not used yet)
-//			wmax,<value>.	set maximum trigger of water sensor to <value> (Not used yet)
+//			wmin,<value>.	set minimum trigger of water sensor to <value>
+//			wmax,<value>.	set maximum trigger of water sensor to <value>
 //				accepted values for <value> = 1 -> 1023
 //
 // Author: Jos Janssen
