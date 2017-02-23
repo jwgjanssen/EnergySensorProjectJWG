@@ -120,29 +120,29 @@ Metro dcf77Metro = Metro(500);           // read time every 500ms
 
 // structures for rf12 communication
 typedef struct { char type;
-        	 long var1;
-		 long var2;
-		 long var3;
+  long var1;
+  long var2;
+  long var3;
 } s_payload_t;  // Sensor data payload, size = 13 bytes
 s_payload_t s_data;
 
 typedef struct { char type;
-                 int minA; int maxA; int minB; int maxB;
-                 int minC; int maxC; int minD; int maxD;
+  int minA; int maxA; int minB; int maxB;
+  int minC; int maxC; int minD; int maxD;
 } l_payload_t;  // Status data payload, size = 17 bytes
 l_payload_t l_data;
 
 typedef struct {  byte type;
-                  int value;
-                  byte hours, mins;
+  int value;
+  byte hours, mins;
 } d_payload_t;  // Display data payload, size = 5 bytes
 d_payload_t d_data;
 
 typedef struct { char command[5];
-                 int value;
+  int value;
 } eeprom_command_t;  // EEprom command payload, size = 7 bytes
 eeprom_command_t change_eeprom;
-       
+
 // vars for measurement
 int watt = 0;
 int gas = 0;
@@ -183,72 +183,72 @@ void showString (PGM_P s) {
   char c;
   
   while ((c = pgm_read_byte(s++)) != 0)
-    Serial.print(c);
+  Serial.print(c);
 }
 
- 
+
 void showStringln (PGM_P s) {
   char c;
   
   while ((c = pgm_read_byte(s++)) != 0)
-    Serial.print(c);
+  Serial.print(c);
   Serial.println();
 }
 
 
 void send_eeprom_update() {
-    showString(PSTR("Sending: "));
-    showString(PSTR("Command= "));
-    Serial.print(change_eeprom.command);
-    showString(PSTR(", Value= "));
-    Serial.println(change_eeprom.value);
-    rf12_sendNow(0, &change_eeprom, sizeof change_eeprom);
+  showString(PSTR("Sending: "));
+  showString(PSTR("Command= "));
+  Serial.print(change_eeprom.command);
+  showString(PSTR(", Value= "));
+  Serial.println(change_eeprom.value);
+  rf12_sendNow(0, &change_eeprom, sizeof change_eeprom);
 }
 
 
 void handleInput () {
-    int c;
-    int sensorvalue;
+  int c;
+  int sensorvalue;
   
-    if (Serial.available() > 0) {
-        c = Serial.read();
-        if (isAlpha(c)) {
-            strncat(cmdbuf, (char *)&c, 1);
-        }
-        if (c==',') {
-            if (strcmp(cmdbuf, "emnl") == 0 || strcmp(cmdbuf, "emxl") == 0 ||
-                strcmp(cmdbuf, "emnr") == 0 || strcmp(cmdbuf, "emxr") == 0 ||
-                strcmp(cmdbuf, "gmin") == 0 || strcmp(cmdbuf, "gmax") == 0 ||
-                strcmp(cmdbuf, "wmin") == 0 || strcmp(cmdbuf, "wmax") == 0) {
-                sprintf(change_eeprom.command, cmdbuf);
-                cmdOK=1;
-            } else if (strcmp(cmdbuf, "gtst") == 0) {
-                       sprintf(change_eeprom.command, cmdbuf);
-                       change_eeprom.value=0;
-                       send_eeprom_update();
-                       sprintf(cmdbuf, ""); sprintf(valbuf, ""); cmdOK=0;
-                   } else {
-                       showString(PSTR("\nIllegal command: "));
-                       Serial.println(cmdbuf);
-                       sprintf(cmdbuf, "");
-                       cmdOK=0;
-                   }
-        }
-        if (isDigit(c) && cmdOK) {
-            strncat(valbuf, (char *)&c, 1);
-        }
-        if (c=='.' && cmdOK) {
-            sensorvalue = atoi(valbuf);
-            if (sensorvalue < 1 || sensorvalue > 1023) {
-                showString(PSTR("\nIllegal sensor value: "));
-                Serial.println(sensorvalue);
-            } else {
-                change_eeprom.value=sensorvalue;
-                send_eeprom_update();
-            }
-            sprintf(cmdbuf, ""); sprintf(valbuf, ""); cmdOK=0;
-        }
+  if (Serial.available() > 0) {
+    c = Serial.read();
+    if (isAlpha(c)) {
+      strncat(cmdbuf, (char *)&c, 1);
     }
+    if (c==',') {
+      if (strcmp(cmdbuf, "emnl") == 0 || strcmp(cmdbuf, "emxl") == 0 ||
+          strcmp(cmdbuf, "emnr") == 0 || strcmp(cmdbuf, "emxr") == 0 ||
+          strcmp(cmdbuf, "gmin") == 0 || strcmp(cmdbuf, "gmax") == 0 ||
+          strcmp(cmdbuf, "wmin") == 0 || strcmp(cmdbuf, "wmax") == 0) {
+        sprintf(change_eeprom.command, cmdbuf);
+        cmdOK=1;
+      } else if (strcmp(cmdbuf, "gtst") == 0) {
+        sprintf(change_eeprom.command, cmdbuf);
+        change_eeprom.value=0;
+        send_eeprom_update();
+        sprintf(cmdbuf, ""); sprintf(valbuf, ""); cmdOK=0;
+      } else {
+        showString(PSTR("\nIllegal command: "));
+        Serial.println(cmdbuf);
+        sprintf(cmdbuf, "");
+        cmdOK=0;
+      }
+    }
+    if (isDigit(c) && cmdOK) {
+      strncat(valbuf, (char *)&c, 1);
+    }
+    if (c=='.' && cmdOK) {
+      sensorvalue = atoi(valbuf);
+      if (sensorvalue < 1 || sensorvalue > 1023) {
+        showString(PSTR("\nIllegal sensor value: "));
+        Serial.println(sensorvalue);
+      } else {
+        change_eeprom.value=sensorvalue;
+        send_eeprom_update();
+      }
+      sprintf(cmdbuf, ""); sprintf(valbuf, ""); cmdOK=0;
+    }
+  }
 }
 
 
@@ -259,7 +259,7 @@ void readTempPres() {
   showString(PSTR("o "));
   Serial.print(otemp);
   showStringln(PSTR(" ")); // extra space at the end is needed
-        
+  
   psensor.measure(BMP085::TEMP);
   psensor.measure(BMP085::PRES);
   psensor.calculate(bmptemp, bmppres);
@@ -286,268 +286,268 @@ void sendTime() {
 
 
 void init_rf12 () {
-    rf12_initialize(30, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 30
+  rf12_initialize(30, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 30
 }
 
 
 void setup () {
-    Serial.begin(57600);
-    showStringln(PSTR("\n[START recv]"));
-    init_rf12();
-    // INIT port 1
-    lcd.begin(16, 2);       // LCD is 2x16 chars
-    lcd.backlight();        // Turn on LCD backlight
-    // INIT port 3
-    psensor.getCalibData(); // Get BMP085 calibration data
-    // INIT port 4
-    sensors.begin();        // DS18B20 default precision 12 bit.
-    dcf.init();
+  Serial.begin(57600);
+  showStringln(PSTR("\n[START recv]"));
+  init_rf12();
+  // INIT port 1
+  lcd.begin(16, 2);       // LCD is 2x16 chars
+  lcd.backlight();        // Turn on LCD backlight
+  // INIT port 3
+  psensor.getCalibData(); // Get BMP085 calibration data
+  // INIT port 4
+  sensors.begin();        // DS18B20 default precision 12 bit.
+  dcf.init();
 
-    #if UNO
-      wdt_enable(WDTO_8S);  // set timeout to 8 seconds
-    #endif
-    readTempPres();
+  #if UNO
+  wdt_enable(WDTO_8S);  // set timeout to 8 seconds
+  #endif
+  readTempPres();
 }
 
 void loop () {
-    if (rf12_recvDone() && rf12_crc == 0) {
-      if (rf12_len == sizeof (s_payload_t)) {
-        s_data = *(s_payload_t*) rf12_data;
-        switch (s_data.type)
-	{
+  if (rf12_recvDone() && rf12_crc == 0) {
+    if (rf12_len == sizeof (s_payload_t)) {
+      s_data = *(s_payload_t*) rf12_data;
+      switch (s_data.type)
+      {
       case 'a':  // Appliance power measurement
-                {
-                  showString(PSTR("a "));
-                  Serial.print(s_data.var1);
-                  break;
-                }
+        {
+          showString(PSTR("a "));
+          Serial.print(s_data.var1);
+          break;
+        }
       case 'b':  // Light sensor data
-                {
-                  showString(PSTR("b "));
-                  Serial.print(s_data.var1);
-				  showString(PSTR(" "));
-				  Serial.print(s_data.var2);
-				  showString(PSTR(" "));
-				  Serial.print(s_data.var3);
-                  break;
-                }
-	    case 'e':   // Electricity data
-                {
-                  showString(PSTR("e "));
-                  Serial.print(s_data.var1);
-                  watt = (int)s_data.var1;
-                  showString(PSTR(" "));
-                  Serial.print(s_data.var2);
-                  break;
-                }
-	    case 'g':  // Gas data
-                {
-                  showString(PSTR("g "));
-                  Serial.print(s_data.var1);
-                  showString(PSTR(" "));
-                  Serial.print(s_data.var2);
-                 break;
-                }
+        {
+          showString(PSTR("b "));
+          Serial.print(s_data.var1);
+          showString(PSTR(" "));
+          Serial.print(s_data.var2);
+          showString(PSTR(" "));
+          Serial.print(s_data.var3);
+          break;
+        }
+      case 'e':   // Electricity data
+        {
+          showString(PSTR("e "));
+          Serial.print(s_data.var1);
+          watt = (int)s_data.var1;
+          showString(PSTR(" "));
+          Serial.print(s_data.var2);
+          break;
+        }
+      case 'g':  // Gas data
+        {
+          showString(PSTR("g "));
+          Serial.print(s_data.var1);
+          showString(PSTR(" "));
+          Serial.print(s_data.var2);
+          break;
+        }
       case 'w':  // Gas data
-                {
-                  showString(PSTR("w "));
-                  Serial.print(s_data.var1);
-                  showString(PSTR(" "));
-                  Serial.print(s_data.var2);
-                 break;
-                }
+        {
+          showString(PSTR("w "));
+          Serial.print(s_data.var1);
+          showString(PSTR(" "));
+          Serial.print(s_data.var2);
+          break;
+        }
       case 'i':  // Inside temperature
-                {
-                  showString(PSTR("i "));
-                  Serial.print(s_data.var1);
-                  itemp=(int)s_data.var1;
-                  itemp_float=(float)s_data.var1/10;
-                  showString(PSTR(" "));
-                  break;
-                }
+        {
+          showString(PSTR("i "));
+          Serial.print(s_data.var1);
+          itemp=(int)s_data.var1;
+          itemp_float=(float)s_data.var1/10;
+          showString(PSTR(" "));
+          break;
+        }
       case 's':  // Solar data
-                {
-                  showString(PSTR("s "));
-                  Serial.print(s_data.var1);
-                  swatt = (int)s_data.var1;
-                  showString(PSTR(" "));
-                  Serial.print(s_data.var2);
-                  showString(PSTR(" "));
-                  Serial.print(s_data.var3);
-                  break;
-                }
-      /*case 't':  // Time data (disabled, sensor is local, so no data to receive from rf12)
-                {
-                  showString(PSTR("t "));
-                  Serial.print(s_data.var1);showString(PSTR(":"));Serial.print(s_data.var2);
-                  d_data.hours=(byte)s_data.var1; d_data.mins=(byte)s_data.var2;
-                  showString(PSTR(" "));
-                  break;
-                }*/
-     /* case 'o':  // Outside temperature (disabled, sensor is local, so no data to receive from rf12)
-                {
-                  showString(PSTR("o "));
-                  Serial.print(s_data.var1);
-                  otemp=(int)s_data.var1;
-                  showString(PSTR(" "));
-                  break;
-                } */
-     /* case 'p':  // Outside pressure (disabled, sensor is local, so no data to receive from rf12)
-                {
-                  showString(PSTR("p "));
-                  Serial.print(s_data.var1);
-                  opres=(int)s_data.var1;
-                  showString(PSTR(" ")); // extra space at the end is needed
-                  break;
-                } */
-	    default:
-		// You can use the default case.
-		showString(PSTR("Wrong measurement payload type!"));
-                break;
-	}
-        if (RF12_WANTS_ACK) {
-            rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+        {
+          showString(PSTR("s "));
+          Serial.print(s_data.var1);
+          swatt = (int)s_data.var1;
+          showString(PSTR(" "));
+          Serial.print(s_data.var2);
+          showString(PSTR(" "));
+          Serial.print(s_data.var3);
+          break;
         }
-        Serial.println("");
-      } else if (rf12_len == sizeof (l_payload_t)) {
-        l_data = *(l_payload_t*) rf12_data;
-        switch (l_data.type)
-	{
-       	    case 'l':  // display sensor settings
-                {
-                  showString(PSTR("l "));
-                  showString(PSTR("min-max: L:"));
-                  Serial.print(l_data.minA);
-                  showString(PSTR("->"));
-                  Serial.print(l_data.maxA);
-                  showString(PSTR(", R:"));
-                  Serial.print(l_data.minB);
-                  showString(PSTR("->"));
-                  Serial.print(l_data.maxB);
-                  showString(PSTR(", G:"));
-                  Serial.print(l_data.minC);
-                  showString(PSTR("->"));
-                  Serial.print(l_data.maxC);
-                  showString(PSTR(", W:"));
-                  Serial.print(l_data.minD);
-                  showString(PSTR("->"));
-                  Serial.print(l_data.maxD);
-                  break;
-                }
-       	    case 'x':  // display adjusted water sensor trigger values
-                {
-                  showString(PSTR("x "));
-                  showString(PSTR("Adjusted water sensor trigger values: "));
-                  Serial.print(l_data.minA);
-                  showString(PSTR("->"));
-                  Serial.print(l_data.maxA);
-                  break;
-                }
-            case 'y':  // display adjusted gas sensor trigger values
-                {
-                  showString(PSTR("y "));
-                  showString(PSTR("Adjusted gas sensor trigger values: "));
-                  Serial.print(l_data.minA);
-                  showString(PSTR("->"));
-                  Serial.print(l_data.maxA);
-                  break;
-                }
-       	    case 'z':  // display adjusted gas sensor trigger values
-                {
-                  showString(PSTR("z "));
-                  showString(PSTR("Adjusted electricity sensor trigger values: L:"));
-                  Serial.print(l_data.minA);
-                  showString(PSTR("->"));
-                  Serial.print(l_data.maxA);
-                  showString(PSTR(" R:"));
-                  Serial.print(l_data.minB);
-                  showString(PSTR("->"));
-                  Serial.print(l_data.maxB);
-                  break;
-                }
-	    default:
-		// You can use the default case.
-		showString(PSTR("Wrong status payload type!"));
-                break;
-	}
-        if (RF12_WANTS_ACK) {
-            rf12_sendStart(RF12_ACK_REPLY, 0, 0);
-        }
-        Serial.println("");
+        /*case 't':  // Time data (disabled, sensor is local, so no data to receive from rf12)
+        {
+          showString(PSTR("t "));
+          Serial.print(s_data.var1);showString(PSTR(":"));Serial.print(s_data.var2);
+          d_data.hours=(byte)s_data.var1; d_data.mins=(byte)s_data.var2;
+          showString(PSTR(" "));
+          break;
+        }*/
+        /* case 'o':  // Outside temperature (disabled, sensor is local, so no data to receive from rf12)
+        {
+          showString(PSTR("o "));
+          Serial.print(s_data.var1);
+          otemp=(int)s_data.var1;
+          showString(PSTR(" "));
+          break;
+        } */
+        /* case 'p':  // Outside pressure (disabled, sensor is local, so no data to receive from rf12)
+        {
+          showString(PSTR("p "));
+          Serial.print(s_data.var1);
+          opres=(int)s_data.var1;
+          showString(PSTR(" ")); // extra space at the end is needed
+          break;
+        } */
+      default:
+        // You can use the default case.
+        showString(PSTR("Wrong measurement payload type!"));
+        break;
       }
+      if (RF12_WANTS_ACK) {
+        rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+      }
+      Serial.println("");
+    } else if (rf12_len == sizeof (l_payload_t)) {
+      l_data = *(l_payload_t*) rf12_data;
+      switch (l_data.type)
+      {
+      case 'l':  // display sensor settings
+        {
+          showString(PSTR("l "));
+          showString(PSTR("min-max: L:"));
+          Serial.print(l_data.minA);
+          showString(PSTR("->"));
+          Serial.print(l_data.maxA);
+          showString(PSTR(", R:"));
+          Serial.print(l_data.minB);
+          showString(PSTR("->"));
+          Serial.print(l_data.maxB);
+          showString(PSTR(", G:"));
+          Serial.print(l_data.minC);
+          showString(PSTR("->"));
+          Serial.print(l_data.maxC);
+          showString(PSTR(", W:"));
+          Serial.print(l_data.minD);
+          showString(PSTR("->"));
+          Serial.print(l_data.maxD);
+          break;
+        }
+      case 'x':  // display adjusted water sensor trigger values
+        {
+          showString(PSTR("x "));
+          showString(PSTR("Adjusted water sensor trigger values: "));
+          Serial.print(l_data.minA);
+          showString(PSTR("->"));
+          Serial.print(l_data.maxA);
+          break;
+        }
+      case 'y':  // display adjusted gas sensor trigger values
+        {
+          showString(PSTR("y "));
+          showString(PSTR("Adjusted gas sensor trigger values: "));
+          Serial.print(l_data.minA);
+          showString(PSTR("->"));
+          Serial.print(l_data.maxA);
+          break;
+        }
+      case 'z':  // display adjusted gas sensor trigger values
+        {
+          showString(PSTR("z "));
+          showString(PSTR("Adjusted electricity sensor trigger values: L:"));
+          Serial.print(l_data.minA);
+          showString(PSTR("->"));
+          Serial.print(l_data.maxA);
+          showString(PSTR(" R:"));
+          Serial.print(l_data.minB);
+          showString(PSTR("->"));
+          Serial.print(l_data.maxB);
+          break;
+        }
+      default:
+        // You can use the default case.
+        showString(PSTR("Wrong status payload type!"));
+        break;
+      }
+      if (RF12_WANTS_ACK) {
+        rf12_sendStart(RF12_ACK_REPLY, 0, 0);
+      }
+      Serial.println("");
     }
+  }
 
 
-    // Send data for displaying on GLCD JeeNode & display selected data on local LCD
-    if ( sendMetro.check() ) {
-        // Send data to display on GLCD Jeenode
-        d_data.type=1;  // display electricity data
-        d_data.value=watt;
-        rf12_sendNow(0, &d_data, sizeof d_data);
-        
-        delay(100);
-        d_data.type=2;  // display solar data
-        d_data.value=swatt;
-        rf12_sendNow(0, &d_data, sizeof d_data);
-        
-	/* Do not send inside temp, is GLCDNode local
+  // Send data for displaying on GLCD JeeNode & display selected data on local LCD
+  if ( sendMetro.check() ) {
+    // Send data to display on GLCD Jeenode
+    d_data.type=1;  // display electricity data
+    d_data.value=watt;
+    rf12_sendNow(0, &d_data, sizeof d_data);
+    
+    delay(100);
+    d_data.type=2;  // display solar data
+    d_data.value=swatt;
+    rf12_sendNow(0, &d_data, sizeof d_data);
+    
+    /* Do not send inside temp, is GLCDNode local
         delay(100);
         d_data.type=3;  // display inside temperature data
         d_data.value=itemp;
         rf12_sendNow(0, &d_data, sizeof d_data);
-	*/
-        
-        delay(100);
-        d_data.type=4;  // display outside temperature data
-        d_data.value=otemp;
-        rf12_sendNow(0, &d_data, sizeof d_data);
-        
-        delay(100);
-        d_data.type=5;  // display outside pressure data
-        d_data.value=opres;
-        rf12_sendNow(0, &d_data, sizeof d_data);
-        
-        // Display data on local LCD
-        lcd.setCursor(8,0); lcd.print("Verbruik"); 
-        lcd.setCursor(9,1); lcd.print(watt); lcd.print(" W ");
+  */
+    
+    delay(100);
+    d_data.type=4;  // display outside temperature data
+    d_data.value=otemp;
+    rf12_sendNow(0, &d_data, sizeof d_data);
+    
+    delay(100);
+    d_data.type=5;  // display outside pressure data
+    d_data.value=opres;
+    rf12_sendNow(0, &d_data, sizeof d_data);
+    
+    // Display data on local LCD
+    lcd.setCursor(8,0); lcd.print("Verbruik"); 
+    lcd.setCursor(9,1); lcd.print(watt); lcd.print(" W ");
 
-        if (otemp > -1 || otemp < -9) {
-          sprintf(lcd_temp, "%3d,%d", otemp/10, abs(otemp%10));
-        } else {
-          sprintf(lcd_temp, "-%2d,%d", otemp/10, abs(otemp%10));
-        }
-        lcd.setCursor(0,0);
-        lcd.print("<"); lcd.print(lcd_temp); lcd.print("C");
- 
-        if (itemp > -1 || itemp < -9) {
-          sprintf(lcd_temp, "%3d,%d", itemp/10, abs(itemp%10));
-        } else {
-          sprintf(lcd_temp, "-%2d,%d", itemp/10, abs(itemp%10));
-        }
-        lcd.setCursor(0,1);
-        lcd.print(">"); lcd.print(lcd_temp); lcd.print("C"); 
+    if (otemp > -1 || otemp < -9) {
+      sprintf(lcd_temp, "%3d,%d", otemp/10, abs(otemp%10));
+    } else {
+      sprintf(lcd_temp, "-%2d,%d", otemp/10, abs(otemp%10));
+    }
+    lcd.setCursor(0,0);
+    lcd.print("<"); lcd.print(lcd_temp); lcd.print("C");
+
+    if (itemp > -1 || itemp < -9) {
+      sprintf(lcd_temp, "%3d,%d", itemp/10, abs(itemp%10));
+    } else {
+      sprintf(lcd_temp, "-%2d,%d", itemp/10, abs(itemp%10));
+    }
+    lcd.setCursor(0,1);
+    lcd.print(">"); lcd.print(lcd_temp); lcd.print("C"); 
   }
-    
-    // Read outside temperature & pressure
-    if ( sampleMetro.check() ) {
-      readTempPres();
-    }
+  
+  // Read outside temperature & pressure
+  if ( sampleMetro.check() ) {
+    readTempPres();
+  }
 
-    if ( dcf77Metro.check() ) {
-      dcf.getTime(dt);
-      if(dt.min != curMin) {
-        d_data.hours=dt.hour; d_data.mins=dt.min;
-        sendTime();
-      }
-      curMin = dt.min;
+  if ( dcf77Metro.check() ) {
+    dcf.getTime(dt);
+    if(dt.min != curMin) {
+      d_data.hours=dt.hour; d_data.mins=dt.min;
+      sendTime();
     }
-    
-    if ( wdtMetro.check() ) {
-        #if UNO
-          wdt_reset();
-        #endif
-    }
-    
-    // read commands from serial input
-    handleInput();
+    curMin = dt.min;
+  }
+  
+  if ( wdtMetro.check() ) {
+    #if UNO
+    wdt_reset();
+    #endif
+  }
+  
+  // read commands from serial input
+  handleInput();
 }

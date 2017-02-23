@@ -28,9 +28,9 @@ ISR(WDT_vect) { Sleepy::watchdogEvent(); }
 
 // structures for rf12 communication
 typedef struct { char type;
-     long var1;
-		 long var2;
-		 long var3;
+	long var1;
+	long var2;
+	long var3;
 } s_payload_t;  // Sensor data payload, size = 13 bytes
 s_payload_t s_data;
 
@@ -42,37 +42,37 @@ double Irms;
 long AppliancePower;
 
 void sendAppliancePower() {
-    s_data.type='a';
-    s_data.var1=AppliancePower;     // = Actual production in W
-    rf12_sendNow(0, &s_data, sizeof s_data);
+	s_data.type='a';
+	s_data.var1=AppliancePower;     // = Actual production in W
+	rf12_sendNow(0, &s_data, sizeof s_data);
 }
 
 void init_rf12 () {
-    rf12_initialize(6, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 6
+	rf12_initialize(6, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 6
 }
 
 void setup() {
-    #if DEBUG
-      Serial.begin(57600);
-      Serial.println("\n[Monitoring a current sensor]");
-    #endif
-    init_rf12();
-  
-    emon1.current(14, 30);             // Current: input pin, calibration.
+	#if DEBUG
+	Serial.begin(57600);
+	Serial.println("\n[Monitoring a current sensor]");
+	#endif
+	init_rf12();
+
+	emon1.current(14, 30);             // Current: input pin, calibration.
 }
 
 void loop()
 {
-  Irms = emon1.calcIrms(1480);  // Calculate Irms only
-  AppliancePower = Irms * 230;
+	Irms = emon1.calcIrms(1480);  // Calculate Irms only
+	AppliancePower = Irms * 230;
   #if DEBUG
-    Serial.print(AppliancePower);      // Apparent power
-    Serial.print(" ");
-    Serial.println(Irms);	       // Irms
+	Serial.print(AppliancePower);      // Apparent power
+	Serial.print(" ");
+	Serial.println(Irms);	       // Irms
   #endif
-  
-  // send appliance data to Central Node 
-  if ( sendMetro.check() ) {
-    sendAppliancePower();
-  }
+
+	// send appliance data to Central Node 
+	if ( sendMetro.check() ) {
+		sendAppliancePower();
+	}
 }

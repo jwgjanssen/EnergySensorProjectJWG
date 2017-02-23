@@ -1,38 +1,38 @@
 /*
 #################################################################################
-# Program reads from USB input and builds webpage				#
-# Interpret lines that start with:						#
-# 	e: for electricity data							#
-# 	g: for gas data								#
-# 	i: for inside temperature data						#
-# 	o: for outside temperature data						#
-# 	p: for outside pressure data						#
-# 	s: for solar production data						#
-# 	w: for water data (not yet)                         			#
-#										#
-# Note: using Arduino IDE commands can be send to the SensorNode:		#
-#	gtst,.		getstatus, list all the min/max values			#
-#	emnl,<value>.	set electricity left sensor min value			#
-#	emxl,<value>.	set electricity left sensor max value			#
-#	emnr,<value>.	set electricity right sensor min value			#
-#	emxr,<value>.	set electricity right sensor max value			#
-#	gmin,<value>.	set gas sensor min value				#
-#	gmax,<value>.	set gas sensor max value				#
-#	wmin,<value>.	set water sensor min value				#
-#	wmax,<value>.	set water sensor max value				# 
-#										#
-# Programmed by Jos Janssen							#
-# Modifications:								#
-# Date:        Who:   	Change:							#
-# 11sep2012    Jos    	Added national holidays on variable dates for 2013	#
-# 28oct2012    Jos    	Deleted meter readings & changed webpage layout		#
-# 30mar2013    Jos    	Added handling solar production data			#
-# 01jul2013    Jos    	Changed date/time for midnight log entries		#
-# 31aug2013    Jos      Added logging to xively.com (excl. gas)			#
+# Program reads from USB input and builds webpage				                        #
+# Interpret lines that start with:						                                  #
+# 	e: for electricity data							                                        #
+# 	g: for gas data								                                              #
+# 	i: for inside temperature data						                                  #
+# 	o: for outside temperature data						                                  #
+# 	p: for outside pressure data						                                    #
+# 	s: for solar production data						                                    #
+# 	w: for water data (not yet)                         			                  #
+#										                                                            #
+# Note: using Arduino IDE commands can be send to the SensorNode:		            #
+#	gtst,.		getstatus, list all the min/max values			                        #
+#	emnl,<value>.	set electricity left sensor min value			                      #
+#	emxl,<value>.	set electricity left sensor max value			                      #
+#	emnr,<value>.	set electricity right sensor min value			                    #
+#	emxr,<value>.	set electricity right sensor max value			                    #
+#	gmin,<value>.	set gas sensor min value				                                #
+#	gmax,<value>.	set gas sensor max value				                                #
+#	wmin,<value>.	set water sensor min value				                              #
+#	wmax,<value>.	set water sensor max value				                              #
+#										                                                            #
+# Programmed by Jos Janssen							                                        #
+# Modifications:								                                                #
+# Date:        Who:   	Change:							                                    #
+# 11sep2012    Jos    	Added national holidays on variable dates for 2013	    #
+# 28oct2012    Jos    	Deleted meter readings & changed webpage layout		      #
+# 30mar2013    Jos    	Added handling solar production data			              #
+# 01jul2013    Jos    	Changed date/time for midnight log entries		          #
+# 31aug2013    Jos      Added logging to xively.com (excl. gas)			            #
 # 01sep2013    Jos      Solution for reporting gas to xively.com                #
-#										#
-# Code written for Fedora 18 Linux and JeeNode with USB or BUB			#
-#										#
+#										                                                            #
+# Code written for Fedora 18 Linux and JeeNode with USB or BUB			            #
+#										                                                            #
 #################################################################################
 # This program is free software and is available under the terms of             #
 # the GNU General Public License. You can redistribute it and/or                #
@@ -86,19 +86,19 @@
 
 /* FUNCTION to fill the array from ACTUAL_LOG file */
 /* NEW Read ACTUAL_LOG to initialise variables
- * Internally the array "long actual[9]" above is used, values are:
- *  0=rotationcount electricity
- *  1=rotation start count electricity
- *  2=Electricity usage today (in Wh !! (=*1000))
- *  3=rotationcount gas
- *  4=rotation start count gas
- *  5=Gas usage today (in L !! (=*1000))
- *  6=rotationcount water
- *  7=rotation start count water
- *  8=Water usage today (in L !! (=*1000))
- *  9=Solar runtime today (in minutes)
- * 10=Solar electricity production today (in Wh !! (=*1000))
- */
+* Internally the array "long actual[9]" above is used, values are:
+*  0=rotationcount electricity
+*  1=rotation start count electricity
+*  2=Electricity usage today (in Wh !! (=*1000))
+*  3=rotationcount gas
+*  4=rotation start count gas
+*  5=Gas usage today (in L !! (=*1000))
+*  6=rotationcount water
+*  7=rotation start count water
+*  8=Water usage today (in L !! (=*1000))
+*  9=Solar runtime today (in minutes)
+* 10=Solar electricity production today (in Wh !! (=*1000))
+*/
 /* global vars used by this function */
 long actual[11];
 
@@ -111,7 +111,7 @@ int read_actual(char filename[])
     return(1);
   }
   for (i=0; i<11; i++) {
-      fscanf(rfp, "%d", &actual[i]);
+    fscanf(rfp, "%d", &actual[i]);
   }
   fclose(rfp);
 }
@@ -127,7 +127,7 @@ int write_actual(char filename[])
     return(1);
   }
   for (i=0; i<11; i++) {
-      fprintf(wfp, "%d ", actual[i]);
+    fprintf(wfp, "%d ", actual[i]);
   }
   fprintf(wfp, "\n");
   fclose(wfp);
@@ -209,8 +209,8 @@ void set_time_vars() {
   date_time = time(NULL);
   l_date_time = localtime(&date_time);
   if (l_date_time == NULL) {
-        perror("Can't get localtime");
-        exit(EXIT_FAILURE);
+    perror("Can't get localtime");
+    exit(EXIT_FAILURE);
   }
   /*  Time vars for time/date dependent functions */
   strftime(date_time_str, sizeof(date_time_str), "%H", l_date_time);
@@ -236,8 +236,8 @@ int open_usb(char usbdevice[])
   char setting_string[255];
 
   sprintf(setting_string, "stty -F %s -hupcl -clocal ignbrk -icrnl -ixon"
-          " -opost -onlcr -isig -icanon time 50 -iexten -echo -echoe -echok"
-          " -echoctl -echoke 57600 -crtscts", usbdevice);
+  " -opost -onlcr -isig -icanon time 50 -iexten -echo -echoe -echok"
+  " -echoctl -echoke 57600 -crtscts", usbdevice);
   system(setting_string);
   if ((usb_fp = fopen(usbdevice, "r+")) == NULL) {
     return(1);
@@ -248,9 +248,9 @@ int open_usb(char usbdevice[])
 int get_usb_line(char *line, int max)
 {
   if (fgets(line, max, usb_fp) == NULL)
-    return 0;
+  return 0;
   else
-    return strlen(line);
+  return strlen(line);
 }
 
 /* FUNCTION to create the html pages with relevant data */
@@ -265,50 +265,50 @@ int otemperature=0;
 int opressure=0;
 
 void create_html_page() {
-      #if DEBUG
-        printf("watt %d, e_today %d, g_today %d, itemp %d, otemp %d opres %d, swatt %d, s_today %d, s_runtime %d\n",
-		watt,    e_today,    g_today,itemperature,otemperature,opressure, swatt,    s_today,    s_runtime);
-      #endif
-      /* Create HTML page */
-      sprintf(htmlstring, "<HTML><HEAD><TITLE>JJ Home data</TITLE><META HTTP-EQUIV=\"refresh\" CONTENT=\"30\"><LINK REL=\"shortcut icon\" HREF=\"favicon.ico\"></HEAD>");
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<BODY BGCOLOR=#000066 TEXT=#E8EEFD LINK=#FFFFFF VLINK=#C6FDF4 ALINK=#0BBFFF BACKGROUND=$BGIMG>");
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<FONT FACE=\"Arial\" SIZE=3>");
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TABLE WIDTH=500 BORDER=1 CELLPADDING=2 CELLSPACING=0 BGCOLOR=#1A689D BORDERCOLOR=#0DD3EA>");
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD COLSPAN=3><FONT SIZE=4 COLOR=#00FF00><CENTER>%s</CENTER></FONT></TD></TR>", htmldatetime);
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD ROWSPAN=2><CENTER><IMG BORDER=0 SRC=\"pictures/electricity-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Actual power usage (W)</TD><TD><FONT SIZE=4>%d W</FONT></TD>", watt);
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD>Electricity usage today (kWh)</TD><TD><FONT SIZE=4>%3.3f kWh</FONT></TD></TR>", (float)e_today/1000);
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD ROWSPAN=3><CENTER><IMG BORDER=0 SRC=\"pictures/solar-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Actual solar power (W)</TD><TD><FONT SIZE=4>%d W</FONT></TD>", swatt);
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD>Solar power today (kWh)</TD><TD><FONT SIZE=4>%3.3f kWh</FONT></TD></TR>", (float)s_today/1000);
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD>Running time today (hh:mm)</TD><TD><FONT SIZE=4>%02u:%02u</FONT></TD></TR>", s_runtime/60, s_runtime%60);
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD><CENTER><IMG BORDER=0 SRC=\"pictures/gas-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Gas usage today (m&sup3;)</TD><TD><FONT SIZE=4>%6.3f m&sup3;</FONT></TD></TR>", (float)g_today/1000);
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD><CENTER><IMG BORDER=0 SRC=\"pictures/temp_inside-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Inside temperature</TD><TD><FONT SIZE=4>%2.1f &deg;C</FONT></TD></TR>", (float)itemperature/10);
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD><CENTER><IMG BORDER=0 SRC=\"pictures/temp_outside-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Outside temperature</TD><TD><FONT SIZE=4>%2.1f &deg;C</FONT></TD></TR>", (float)otemperature/10);
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD><CENTER><IMG BORDER=0 SRC=\"pictures/pressure-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Barometric pressure</TD><TD><FONT SIZE=4>%4.1f hPa</FONT></TD></TR>", (float)opressure/10);
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD COLSPAN=3><IMG SRC=\"graph/solar_power_last_day.png\"></TD>");
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD COLSPAN=3><IMG SRC=\"graph/solar_power_last_week.png\"></TD>");
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD COLSPAN=3><IMG SRC=\"graph/solar_power_last_month.png\"></TD>");
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "<TR><TD COLSPAN=3><IMG SRC=\"graph/solar_power_last_year.png\"></TD>");
-      append_to_file(thtml, htmlstring);
-      sprintf(htmlstring, "</FONT></TABLE></BODY></HTML>");
-      append_to_file(thtml, htmlstring);
-      rename(thtml, ahtml);
+  #if DEBUG
+  printf("watt %d, e_today %d, g_today %d, itemp %d, otemp %d opres %d, swatt %d, s_today %d, s_runtime %d\n",
+  watt,    e_today,    g_today,itemperature,otemperature,opressure, swatt,    s_today,    s_runtime);
+  #endif
+  /* Create HTML page */
+  sprintf(htmlstring, "<HTML><HEAD><TITLE>JJ Home data</TITLE><META HTTP-EQUIV=\"refresh\" CONTENT=\"30\"><LINK REL=\"shortcut icon\" HREF=\"favicon.ico\"></HEAD>");
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<BODY BGCOLOR=#000066 TEXT=#E8EEFD LINK=#FFFFFF VLINK=#C6FDF4 ALINK=#0BBFFF BACKGROUND=$BGIMG>");
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<FONT FACE=\"Arial\" SIZE=3>");
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TABLE WIDTH=500 BORDER=1 CELLPADDING=2 CELLSPACING=0 BGCOLOR=#1A689D BORDERCOLOR=#0DD3EA>");
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD COLSPAN=3><FONT SIZE=4 COLOR=#00FF00><CENTER>%s</CENTER></FONT></TD></TR>", htmldatetime);
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD ROWSPAN=2><CENTER><IMG BORDER=0 SRC=\"pictures/electricity-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Actual power usage (W)</TD><TD><FONT SIZE=4>%d W</FONT></TD>", watt);
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD>Electricity usage today (kWh)</TD><TD><FONT SIZE=4>%3.3f kWh</FONT></TD></TR>", (float)e_today/1000);
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD ROWSPAN=3><CENTER><IMG BORDER=0 SRC=\"pictures/solar-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Actual solar power (W)</TD><TD><FONT SIZE=4>%d W</FONT></TD>", swatt);
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD>Solar power today (kWh)</TD><TD><FONT SIZE=4>%3.3f kWh</FONT></TD></TR>", (float)s_today/1000);
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD>Running time today (hh:mm)</TD><TD><FONT SIZE=4>%02u:%02u</FONT></TD></TR>", s_runtime/60, s_runtime%60);
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD><CENTER><IMG BORDER=0 SRC=\"pictures/gas-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Gas usage today (m&sup3;)</TD><TD><FONT SIZE=4>%6.3f m&sup3;</FONT></TD></TR>", (float)g_today/1000);
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD><CENTER><IMG BORDER=0 SRC=\"pictures/temp_inside-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Inside temperature</TD><TD><FONT SIZE=4>%2.1f &deg;C</FONT></TD></TR>", (float)itemperature/10);
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD><CENTER><IMG BORDER=0 SRC=\"pictures/temp_outside-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Outside temperature</TD><TD><FONT SIZE=4>%2.1f &deg;C</FONT></TD></TR>", (float)otemperature/10);
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD><CENTER><IMG BORDER=0 SRC=\"pictures/pressure-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Barometric pressure</TD><TD><FONT SIZE=4>%4.1f hPa</FONT></TD></TR>", (float)opressure/10);
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD COLSPAN=3><IMG SRC=\"graph/solar_power_last_day.png\"></TD>");
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD COLSPAN=3><IMG SRC=\"graph/solar_power_last_week.png\"></TD>");
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD COLSPAN=3><IMG SRC=\"graph/solar_power_last_month.png\"></TD>");
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD COLSPAN=3><IMG SRC=\"graph/solar_power_last_year.png\"></TD>");
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "</FONT></TABLE></BODY></HTML>");
+  append_to_file(thtml, htmlstring);
+  rename(thtml, ahtml);
 }
 
 
@@ -344,14 +344,14 @@ main(int argc, char *argv[])
   set_time_vars();
 
   /*  read line from port and process only lines that start with:
-   * 	e: for electricity data
-   * 	g: for gas data
-   * 	i: for inside temperature data
-   * 	o: for outside temperature data
-   * 	p: for outside pressure data
-   * 	s: for solar production data
-   * 	w: for water data (not yet)
-   */
+  * 	e: for electricity data
+  * 	g: for gas data
+  * 	i: for inside temperature data
+  * 	o: for outside temperature data
+  * 	p: for outside pressure data
+  * 	s: for solar production data
+  * 	w: for water data (not yet)
+  */
   open_usb(PORT);
   while (1) {
     gbytes=get_usb_line(usb_line, 128);  
@@ -366,74 +366,74 @@ main(int argc, char *argv[])
       /* process the line */
       sscanf(usb_line, "%c %d %d %d", &type, &item2, &item3, &item4);
       switch (type) {
-        case 'e':
-          watt=item2;
-          e_rotations=item3;
-          #if DEBUG
-            printf("type %c, watt %d, e_rotations %d\n", type, watt, e_rotations);
-          #endif
-          e_today = ((e_rotations-e_start_rotations)*1000)/CFACTOR;
-	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Electricity", watt);
-	  system(systemstr);
-          break;
-        case 'g':
-          g_rotations=item3;
-          #if DEBUG
-            printf("type %c, g_rotations %d\n", type, g_rotations);
-          #endif
-          g_today = (g_rotations-g_start_rotations)*10;
-	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Gas", 10);
-	  system(systemstr);
-	  sleep(1);
-	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Gas", 0);
-	  system(systemstr);
-          break;
-        case 'i':
-          itemperature=item2;
-          #if DEBUG
-            printf("type %c, itemperature %d\n", type, itemperature);
-          #endif
-	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %2.1f", APIKEY, FEEDID, "Inside", (float)itemperature/10);
-	  system(systemstr);
-          break;
-        case 'o':
-          otemperature=item2;
-          #if DEBUG
-            printf("type %c, otemperature %d\n", type, otemperature);
-          #endif
-	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %2.1f", APIKEY, FEEDID, "Outside", (float)otemperature/10);
-	  system(systemstr);
-          break;
-        case 'p':
-          opressure=item2;
-          #if DEBUG
-            printf("type %c, opressure %d\n", type, opressure);
-          #endif
-	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %4.1f", APIKEY, FEEDID, "Pressure", (float)opressure/10);
-	  system(systemstr);
-          break;
-        case 's':
-          swatt=item2;
-          s_today=item3;
-          s_runtime=item4;
-          #if DEBUG
-            printf("type %c, swatt %d, s_today %d, s_runtime %d\n", type, swatt, s_today, s_runtime);
-          #endif
-	  sprintf(systemstr, "rrdtool update %s N:%d", rrd_db, swatt);
-	  system(systemstr);
-	  sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "SolarOutput", swatt);
-	  system(systemstr);
-          break;
-//      case 'w':
-//        break;
+      case 'e':
+        watt=item2;
+        e_rotations=item3;
+        #if DEBUG
+        printf("type %c, watt %d, e_rotations %d\n", type, watt, e_rotations);
+        #endif
+        e_today = ((e_rotations-e_start_rotations)*1000)/CFACTOR;
+        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Electricity", watt);
+        system(systemstr);
+        break;
+      case 'g':
+        g_rotations=item3;
+        #if DEBUG
+        printf("type %c, g_rotations %d\n", type, g_rotations);
+        #endif
+        g_today = (g_rotations-g_start_rotations)*10;
+        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Gas", 10);
+        system(systemstr);
+        sleep(1);
+        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Gas", 0);
+        system(systemstr);
+        break;
+      case 'i':
+        itemperature=item2;
+        #if DEBUG
+        printf("type %c, itemperature %d\n", type, itemperature);
+        #endif
+        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %2.1f", APIKEY, FEEDID, "Inside", (float)itemperature/10);
+        system(systemstr);
+        break;
+      case 'o':
+        otemperature=item2;
+        #if DEBUG
+        printf("type %c, otemperature %d\n", type, otemperature);
+        #endif
+        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %2.1f", APIKEY, FEEDID, "Outside", (float)otemperature/10);
+        system(systemstr);
+        break;
+      case 'p':
+        opressure=item2;
+        #if DEBUG
+        printf("type %c, opressure %d\n", type, opressure);
+        #endif
+        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %4.1f", APIKEY, FEEDID, "Pressure", (float)opressure/10);
+        system(systemstr);
+        break;
+      case 's':
+        swatt=item2;
+        s_today=item3;
+        s_runtime=item4;
+        #if DEBUG
+        printf("type %c, swatt %d, s_today %d, s_runtime %d\n", type, swatt, s_today, s_runtime);
+        #endif
+        sprintf(systemstr, "rrdtool update %s N:%d", rrd_db, swatt);
+        system(systemstr);
+        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "SolarOutput", swatt);
+        system(systemstr);
+        break;
+        //      case 'w':
+        //        break;
       }
       set_actual_array();
       write_actual(alog);
-  
+      
       /*  Reset the daily counter e_today and g_today, because of a new day set
-       *  e_start_rotations, g_start_rotations and w_start_rotations(not yet) to the number of
-       *  rotations now, because of a new day
-       */
+      *  e_start_rotations, g_start_rotations and w_start_rotations(not yet) to the number of
+      *  rotations now, because of a new day
+      */
       if ( (prev_hours == 23) && (hours == 00) ) {
         sprintf(logstring, "%s %d %d 0 %d %d\n", prevlogdatetime, e_today, g_today, s_today, s_runtime);
         append_to_file(mlog, logstring);
@@ -443,8 +443,8 @@ main(int argc, char *argv[])
         e_start_rotations = e_rotations;
         g_today = 0;
         g_start_rotations = g_rotations;
-	s_today = 0;
-	s_runtime = 0;
+        s_today = 0;
+        s_runtime = 0;
         /*w_today = 0;
         w_start_rotations = w_rotations;*/
 

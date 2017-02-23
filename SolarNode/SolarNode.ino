@@ -52,9 +52,9 @@ UartPlug uart (i2cBus, 0x4D);
 
 // structures for rf12 communication
 typedef struct { char type;
-        	 long var1;
-		 long var2;
-		 long var3;
+  long var1;
+  long var2;
+  long var3;
 } s_payload_t;  // Sensor data payload, size = 13 bytes
 s_payload_t s_data;
 
@@ -75,11 +75,11 @@ uint16_t Gridoutput, Gridoutput_bu;      // vars for handling Gridoutput before 
 #define AWAKE 1
 #define SUSPENDED 2
 int inverter_state; // Possible values: 
-                    // SLEEPING (0) : Soladin does not respond to commands
-                    // AWAKE (1)    : Soladin responds to commands
-                    // SUSPENDED (2): The first 3 hours of Soladin not responding to commands, is seen as SUSPENDED
-                    //                state in stead of SLEEPING. This state is needed to handle the Soladin
-                    //                being non-responsive during the day due to bad weather or solar eclipse.
+// SLEEPING (0) : Soladin does not respond to commands
+// AWAKE (1)    : Soladin responds to commands
+// SUSPENDED (2): The first 3 hours of Soladin not responding to commands, is seen as SUSPENDED
+//                state in stead of SLEEPING. This state is needed to handle the Soladin
+//                being non-responsive during the day due to bad weather or solar eclipse.
 char pr_value[12];
 
 // counter variables
@@ -110,9 +110,9 @@ void SDisplayTitles() {
   glcd.drawString_P(76, 44, PSTR("Eff"));
   glcd.drawString_P(76, 52, PSTR("Error"));
   switch (inverter_state) {
-      case SLEEPING:  glcd.drawString_P(76, 59, PSTR("State: sleep")); break;
-      case SUSPENDED: glcd.drawString_P(76, 59, PSTR("State: susp")); break;
-      case AWAKE:     glcd.drawString_P(76, 59, PSTR("State: awake")); break;
+  case SLEEPING:  glcd.drawString_P(76, 59, PSTR("State: sleep")); break;
+  case SUSPENDED: glcd.drawString_P(76, 59, PSTR("State: susp")); break;
+  case AWAKE:     glcd.drawString_P(76, 59, PSTR("State: awake")); break;
   }
   // Solar part
   glcd.drawString_P(5, 40, PSTR("Solar"));
@@ -207,100 +207,100 @@ int GetDeviceReadings() {
   // Get Soladin values for: Flag, PVvolt, PVamp, Gridfreq, Gridvolt, Gridpower
   //                         Totalpower, DeviceTemp, TotalOperaTime
   for (int i=0 ; i < 3 ; i++) {
-      if (sol.query(DVS)) {           // request Device status
-          rc = EXIT_SUCCESS;
-          break;
-      } else {
-          rc = EXIT_FAILURE;
-      }
-      delay(500);
+    if (sol.query(DVS)) {           // request Device status
+      rc = EXIT_SUCCESS;
+      break;
+    } else {
+      rc = EXIT_FAILURE;
+    }
+    delay(500);
   }
   
   // Get Soladin values for: DailyOpTm, Gridoutput
   for (int i=0 ; i < 3 ; i++) {
-      if (sol.query(HSD,0)) {         // request today's power and running time
-          DailyOpTm = sol.DailyOpTm + DailyOpTm_bu;
-          Gridoutput = sol.Gridoutput + Gridoutput_bu;
-          rc = EXIT_SUCCESS;
-          break;
-      } else {
-          rc = EXIT_FAILURE;
-      }
-      delay(500);
+    if (sol.query(HSD,0)) {         // request today's power and running time
+      DailyOpTm = sol.DailyOpTm + DailyOpTm_bu;
+      Gridoutput = sol.Gridoutput + Gridoutput_bu;
+      rc = EXIT_SUCCESS;
+      break;
+    } else {
+      rc = EXIT_FAILURE;
+    }
+    delay(500);
   }
   return rc;
 }
 
 
 void init_rf12() {
-    rf12_initialize(5, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 5
+  rf12_initialize(5, RF12_868MHZ, 5); // 868 Mhz, net group 5, node 5
 }
 
 
 void setup() {
-    #if DEBUG
-      Serial.begin(57600);
-      Serial.println("\n[Monitoring a Mastervolt Soladin 600 inverter]");
-    #endif
-    init_rf12();
-    uart.begin(9600);
-    sol.begin(&uart);
-    if (UNO) wdt_enable(WDTO_8S);  // set timeout to 8 seconds
-    glcd.begin();  // set contast between 0x15 and 0x1a
-    DailyOpTm_bu = 0;
-    Gridoutput_bu = 0;
-    if ( GetDeviceReadings() ) {
-        inverter_state = AWAKE;
-        SDisplayReadings();
-        sendSolar();
-    } else {
-        inverter_state = SLEEPING;
-        SDisplaySleep();
-    }
+  #if DEBUG
+  Serial.begin(57600);
+  Serial.println("\n[Monitoring a Mastervolt Soladin 600 inverter]");
+  #endif
+  init_rf12();
+  uart.begin(9600);
+  sol.begin(&uart);
+  if (UNO) wdt_enable(WDTO_8S);  // set timeout to 8 seconds
+  glcd.begin();  // set contast between 0x15 and 0x1a
+  DailyOpTm_bu = 0;
+  Gridoutput_bu = 0;
+  if ( GetDeviceReadings() ) {
+    inverter_state = AWAKE;
+    SDisplayReadings();
+    sendSolar();
+  } else {
+    inverter_state = SLEEPING;
+    SDisplaySleep();
+  }
 }
 
-  
+
 void loop() {
-    // take a reading from the Soladin and display corresponding data
-    if ( sampleMetro.check() ) {
-        if ( GetDeviceReadings() ) {
-            if ( inverter_state == SUSPENDED ) {
-                susp_secs.reset();  // reset stopwatch to 0
-            }
-            inverter_state = AWAKE;
-            SDisplayReadings();
-        } else {
-            if ( inverter_state == AWAKE ) {
-                // save last valid readings for DailyOpTm and Gridoutput
-                DailyOpTm_bu = DailyOpTm;
-                Gridoutput_bu = Gridoutput;
+  // take a reading from the Soladin and display corresponding data
+  if ( sampleMetro.check() ) {
+    if ( GetDeviceReadings() ) {
+      if ( inverter_state == SUSPENDED ) {
+        susp_secs.reset();  // reset stopwatch to 0
+      }
+      inverter_state = AWAKE;
+      SDisplayReadings();
+    } else {
+      if ( inverter_state == AWAKE ) {
+        // save last valid readings for DailyOpTm and Gridoutput
+        DailyOpTm_bu = DailyOpTm;
+        Gridoutput_bu = Gridoutput;
 
-                susp_secs.reset();  // reset stopwatch to 0
-                susp_secs.start();  // start stopwatch
-                inverter_state = SUSPENDED;
-            }
-            
-            SDisplaySleep();
-            
-            // set inverter state to SLEEPING after 3 hours (10800 secs) of SUSPENDED state
-            if ( (susp_secs.state() == StopWatch::RUNNING) && (susp_secs.elapsed() > 10800) ) {
-                susp_secs.reset();  // reset stopwatch to 0
-                inverter_state = SLEEPING;
-                // reset backup vars
-                DailyOpTm_bu = 0;
-                Gridoutput_bu = 0;
-            }
-        }
+        susp_secs.reset();  // reset stopwatch to 0
+        susp_secs.start();  // start stopwatch
+        inverter_state = SUSPENDED;
+      }
+      
+      SDisplaySleep();
+      
+      // set inverter state to SLEEPING after 3 hours (10800 secs) of SUSPENDED state
+      if ( (susp_secs.state() == StopWatch::RUNNING) && (susp_secs.elapsed() > 10800) ) {
+        susp_secs.reset();  // reset stopwatch to 0
+        inverter_state = SLEEPING;
+        // reset backup vars
+        DailyOpTm_bu = 0;
+        Gridoutput_bu = 0;
+      }
     }
-        
-    // send solar data to Central Node 
-    if ( sendMetro.check() ) {
-        if (inverter_state == AWAKE) {
-            sendSolar();
-        }
+  }
+  
+  // send solar data to Central Node 
+  if ( sendMetro.check() ) {
+    if (inverter_state == AWAKE) {
+      sendSolar();
     }
+  }
 
-    /*if ( LDRMetro.check() ) {
+  /*if ( LDRMetro.check() ) {
         LDR=LDRport.anaRead();				// Read LDR value for light level in the room
         LDRbacklight=map(LDR,0,400,25,255);     	// Map LDR data to GLCD brightness
         LDRbacklight=constrain(LDRbacklight,0,255);	// constrain value to 0-255
@@ -310,9 +310,9 @@ void loop() {
         #endif
         glcd.backLight(LDRbacklight);
     }*/
- 
-    if ( wdtMetro.check() ) {
-      if (UNO) wdt_reset();
-    }
+
+  if ( wdtMetro.check() ) {
+    if (UNO) wdt_reset();
+  }
 }
 
