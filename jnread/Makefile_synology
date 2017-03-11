@@ -1,0 +1,11 @@
+CC= /usr/local/i686-pc-linux-gnu/bin/i686-pc-linux-gnu-gcc
+LD= /usr/local/i686-pc-linux-gnu/bin/i686-pc-linux-gnu-ld
+CFLAGS += -I/usr/local/i686-pc-linux-gnu/include -lrt -std=gnu99
+LDFLAGS+=-L/usr/local/i686-pc-linux-gnu/lib -lm
+#CC=/usr/local/i686-pc-linux-gnu/bin/i686-pc-linux-gnu-gcc -O -lrt
+jnread: jnread.o 
+
+jnread.o: jnread.c
+
+clean:
+	rm -f jnread jnread.o
