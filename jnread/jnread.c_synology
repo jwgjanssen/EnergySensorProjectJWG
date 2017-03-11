@@ -33,6 +33,8 @@
 # 14feb2015    Jos      Changed file paths for use on Synology                  #
 # 09oct2015    Jos      Added handling water data                               #
 # 14dec2015    Jos      Added sending data to Domoticz server                   #
+# 09mar2017    Jos      Removed xively.com stuff                                #
+# 11mar2017    Jos      Changed format of daily stats file to CSV               #
 #										                                                            #
 # Code written for Synology DSM Linux and JeeNode with USB or BUB			          #
 #										                                                            #
@@ -57,11 +59,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <math.h>
-
-#include "xively_settings.h"
-#include <xively.h>
-#include <xi_helpers.h>
-#include <xi_err.h>
 
 
 /*#### DEFINITIONS ##########################################################*/
@@ -90,7 +87,7 @@
 #define CFACTOR 600
 
 /* Settings for updating counters on the Domoticz server */
-#define DOMOTICZ_SERVER "rpi1b-02:8080"
+#define DOMOTICZ_SERVER "rpi3b-02:8080"
 #define E_IDX_counter "22"
 #define E_IDX_actual "23"
 #define S_IDX "17"
@@ -241,7 +238,7 @@ void set_time_vars() {
   //strftime(today, sizeof(date_time_str), "%d-%m-%Y", l_date_time);
   /*  Time/date var for logging purposes */
   strcpy(prevlogdatetime,logdatetime);
-  strftime(logdatetime, sizeof(date_time_str), "%d-%m-%y %H:%M:%S", l_date_time);
+  strftime(logdatetime, sizeof(date_time_str), "%d-%m-%y,%H:%M:%S", l_date_time);
   /*  Time/date var for html page */
   strftime(htmldatetime, sizeof(date_time_str), "%a %b %d %H:%M:%S %Z %Y", l_date_time);
 }
@@ -334,68 +331,6 @@ void create_html_page() {
 }
 
 
-int datastream_update(char *apikey, char *feedid, char *item, int value)
-{
-  // create the xi library context
-  xi_context_t* xi_context
-  = xi_create_context(XI_HTTP, apikey, atoi(feedid));
-
-  // check if everything works
-  if( xi_context == 0 )
-  {
-    return -1;
-  }
-
-  xi_datapoint_t datapoint;
-  xi_set_value_i32( &datapoint, value );
-
-  { // get actual timestamp
-    time_t timer = 0;
-    time( &timer );
-    datapoint.timestamp.timestamp = timer;
-  }
-
-  xi_datastream_update( xi_context, atoi(feedid), item, &datapoint );
-
-  //printf( "err: %d - %s\n", ( int ) xi_get_last_error(), xi_get_error_string( xi_get_last_error() ) );
-
-  // destroy the context cause we don't need it anymore
-  xi_delete_context( xi_context );
-  return 0;
-}
-
-
-int datastream_updatef(char *apikey, char *feedid, char *item, float value)
-{
-  // create the xi library context
-  xi_context_t* xi_context
-  = xi_create_context(XI_HTTP, apikey, atoi(feedid));
-
-  // check if everything works
-  if( xi_context == 0 )
-  {
-    return -1;
-  }
-
-  xi_datapoint_t datapoint;
-  xi_set_value_f32( &datapoint, value);
-
-  { // get actual timestamp
-    time_t timer = 0;
-    time( &timer );
-    datapoint.timestamp.timestamp = timer;
-  }
-
-  xi_datastream_update( xi_context, atoi(feedid), item, &datapoint );
-
-  //printf( "err: %d - %s\n", ( int ) xi_get_last_error(), xi_get_error_string( xi_get_last_error() ) );
-
-  // destroy the context cause we don't need it anymore
-  xi_delete_context( xi_context );
-  return 0;
-}
-
-
 /*#### MAIN #################################################################*/
 
 /* Initialise some variables */
@@ -456,9 +391,6 @@ int main(int argc, char *argv[])
         #endif
         sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d\"", DOMOTICZ_SERVER, A_IDX, item2);
         system(systemstr);
-        //sprintf(systemstr, "/volume1/homes/jos/jnread/datastream_update %s %s %s %d", APIKEY, FEEDID, "Appliance", item2);
-        //system(systemstr);
-        datastream_update(APIKEY, FEEDID, "Appliance", item2);
         break;
       case 'e':
         watt=item2;
@@ -469,11 +401,9 @@ int main(int argc, char *argv[])
         e_today = ((e_rotations-e_start_rotations)*1000)/CFACTOR;
         sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d;%d\"", DOMOTICZ_SERVER, E_IDX_actual, watt);
         system(systemstr);
-        sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d;%d\"", DOMOTICZ_SERVER, E_IDX_counter, e_rotations);
+        // The "(e_rotations*1000)/600" in the line below is needed to be able to set the "Energy counter divider" in Domoticz on 1000 (and not 600)
+        sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d;%d\"", DOMOTICZ_SERVER, E_IDX_counter, (e_rotations*1000)/600);
         system(systemstr);
-        //sprintf(systemstr, "/volume1/homes/jos/jnread/datastream_update %s %s %s %d", APIKEY, FEEDID, "Electricity", watt);
-        //system(systemstr);
-        datastream_update(APIKEY, FEEDID, "Electricity", watt);
         break;
       case 'g':
         g_rotations=item3;
@@ -483,13 +413,7 @@ int main(int argc, char *argv[])
         g_today = (g_rotations-g_start_rotations)*10;
         sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d\"", DOMOTICZ_SERVER, G_IDX, g_rotations);
         system(systemstr);
-        //sprintf(systemstr, "/volume1/homes/jos/jnread/datastream_update %s %s %s %d", APIKEY, FEEDID, "Gas", 10);
-        //system(systemstr);
-        datastream_update(APIKEY, FEEDID, "Gas", 10);
-        sleep(1);
-        //sprintf(systemstr, "/volume1/homes/jos/jnread/datastream_update %s %s %s %d", APIKEY, FEEDID, "Gas", 0);
-        //system(systemstr);
-        datastream_update(APIKEY, FEEDID, "Gas", 0);
+        //sleep(1);
         break;
       case 'w':
         w_rotations=item3;
@@ -499,13 +423,7 @@ int main(int argc, char *argv[])
         w_today = (w_rotations-w_start_rotations)*1;
         sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d\"", DOMOTICZ_SERVER, W_IDX, w_rotations);
         system(systemstr);
-        //sprintf(systemstr, "/volume1/homes/jos/jnread/datastream_update %s %s %s %d", APIKEY, FEEDID, "Water", 1);
-        //system(systemstr);
-        datastream_update(APIKEY, FEEDID, "Water", 1);
-        sleep(1);
-        //sprintf(systemstr, "/volume1/homes/jos/jnread/datastream_update %s %s %s %d", APIKEY, FEEDID, "Water", 0);
-        //system(systemstr);
-        datastream_update(APIKEY, FEEDID, "Water", 0);
+        //sleep(1);
         break;
       case 'i':
         itemperature=item2;
@@ -514,9 +432,6 @@ int main(int argc, char *argv[])
         #endif
         sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%2.1f\"", DOMOTICZ_SERVER, I_IDX, (float)itemperature/10.0f);
         system(systemstr);
-        //sprintf(systemstr, "/volume1/homes/jos/jnread/datastream_updatef %s %s %s %2.1f", APIKEY, FEEDID, "Inside", (float)itemperature/10);
-        //system(systemstr);
-        datastream_updatef(APIKEY, FEEDID, "Inside", (float)itemperature/10.0f);
         break;
       case 'o':
         otemperature=item2;
@@ -525,9 +440,6 @@ int main(int argc, char *argv[])
         #endif
         sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%2.1f\"", DOMOTICZ_SERVER, O_IDX, (float)otemperature/10.0f);
         system(systemstr);
-        //sprintf(systemstr, "/volume1/homes/jos/jnread/datastream_updatef %s %s %s %2.1f", APIKEY, FEEDID, "Outside", (float)otemperature/10);
-        //system(systemstr);
-        datastream_updatef(APIKEY, FEEDID, "Outside", (float)otemperature/10.0f);
         break;
       case 'p':
         opressure=item2;
@@ -536,9 +448,6 @@ int main(int argc, char *argv[])
         #endif
         sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%4.1f;5\"", DOMOTICZ_SERVER, P_IDX, (float)opressure/10.0f);
         system(systemstr);
-        //sprintf(systemstr, "/volume1/homes/jos/jnread/datastream_updatef %s %s %s %4.1f", APIKEY, FEEDID, "Pressure", (float)opressure/10);
-        //system(systemstr);
-        datastream_updatef(APIKEY, FEEDID, "Pressure", (float)opressure/10.0f);
         break;
       case 's':
         swatt=item2;
@@ -551,9 +460,6 @@ int main(int argc, char *argv[])
         system(systemstr);
         sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d;%d\"", DOMOTICZ_SERVER, S_IDX, swatt, s_today);
         system(systemstr);
-        //sprintf(systemstr, "/volume1/homes/jos/jnread/datastream_update %s %s %s %d", APIKEY, FEEDID, "SolarOutput", swatt);
-        //system(systemstr);
-        datastream_update(APIKEY, FEEDID, "SolarOutput", swatt);
         break;
       }
       set_actual_array();
@@ -564,7 +470,7 @@ int main(int argc, char *argv[])
       *  rotations now, because of a new day
       */
       if ( (prev_hours == 23) && (hours == 00) ) {
-        sprintf(logstring, "%s %d %d %d %d %d\n", prevlogdatetime, e_today, g_today, w_today, s_today, s_runtime);
+        sprintf(logstring, "%s,%d,%d,%d,%d,%d\n", prevlogdatetime, e_today, g_today, w_today, s_today, s_runtime);
         append_to_file(mlog, logstring);
         sprintf(logstring, "Midnight reset of the counters\n");
         append_to_file(log, logstring);
