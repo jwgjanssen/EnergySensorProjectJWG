@@ -1,38 +1,45 @@
 /*
 #################################################################################
-# Program reads from USB input and builds webpage				                        #
-# Interpret lines that start with:						                                  #
-# 	e: for electricity data							                                        #
-# 	g: for gas data								                                              #
-# 	i: for inside temperature data						                                  #
-# 	o: for outside temperature data						                                  #
-# 	p: for outside pressure data						                                    #
-# 	s: for solar production data						                                    #
-# 	w: for water data (not yet)                         			                  #
-#										                                                            #
-# Note: using Arduino IDE commands can be send to the SensorNode:		            #
-#	gtst,.		getstatus, list all the min/max values			                        #
-#	emnl,<value>.	set electricity left sensor min value			                      #
-#	emxl,<value>.	set electricity left sensor max value			                      #
-#	emnr,<value>.	set electricity right sensor min value			                    #
-#	emxr,<value>.	set electricity right sensor max value			                    #
-#	gmin,<value>.	set gas sensor min value				                                #
-#	gmax,<value>.	set gas sensor max value				                                #
-#	wmin,<value>.	set water sensor min value				                              #
-#	wmax,<value>.	set water sensor max value				                              #
-#										                                                            #
-# Programmed by Jos Janssen							                                        #
-# Modifications:								                                                #
-# Date:        Who:   	Change:							                                    #
+# Program reads from USB input and builds webpage			                   	#
+# Interpret lines that start with:                                              #
+#   a: for appliance data       					                           	#
+# 	e: for electricity data							                            #
+# 	g: for gas data								                                #
+# 	w: for water data							                                #
+# 	i: for inside temperature data						                        #
+# 	o: for outside temperature data						                        #
+# 	p: for outside pressure data						                        #
+# 	s: for solar production data						                        #
+#										                                        #
+# Note: using Arduino IDE commands can be send to the SensorNode:		        #
+#	gtst,.		getstatus, list all the min/max values			                #
+#	emnl,<value>.	set electricity left sensor min value			            #
+#	emxl,<value>.	set electricity left sensor max value			            #
+#	emnr,<value>.	set electricity right sensor min value			            #
+#	emxr,<value>.	set electricity right sensor max value			            #
+#	gmin,<value>.	set gas sensor min value				                    #
+#	gmax,<value>.	set gas sensor max value				                    #
+#	wmin,<value>.	set water sensor min value				                    #
+#	wmax,<value>.	set water sensor max value				                    #
+#										                                        #
+# Programmed by Jos Janssen							                            #
+# Modifications:								                                #
+# Date:        Who:   	Change:							                        #
 # 11sep2012    Jos    	Added national holidays on variable dates for 2013	    #
-# 28oct2012    Jos    	Deleted meter readings & changed webpage layout		      #
-# 30mar2013    Jos    	Added handling solar production data			              #
-# 01jul2013    Jos    	Changed date/time for midnight log entries		          #
-# 31aug2013    Jos      Added logging to xively.com (excl. gas)			            #
+# 28oct2012    Jos    	Deleted meter readings & changed webpage layout	        #
+# 30mar2013    Jos    	Added handling solar production data			        #
+# 01jul2013    Jos    	Changed date/time for midnight log entries		        #
+# 31aug2013    Jos      Added logging to xively.com (excl. gas)			        #
 # 01sep2013    Jos      Solution for reporting gas to xively.com                #
-#										                                                            #
-# Code written for Fedora 18 Linux and JeeNode with USB or BUB			            #
-#										                                                            #
+# 14feb2015    Jos      Changed file paths for use on Synology                  #
+# 09oct2015    Jos      Added handling water data                               #
+# 14dec2015    Jos      Added sending data to Domoticz server                   #
+# 09mar2017    Jos      Removed xively.com stuff                                #
+# 11mar2017    Jos      Changed format of daily stats file to CSV               #
+# 13dec2019    Jos		Changes for use in Docker                               #
+#										                                        #
+# Code written for Linux and JeeNode with USB or BUB		                    #
+#										                                        #
 #################################################################################
 # This program is free software and is available under the terms of             #
 # the GNU General Public License. You can redistribute it and/or                #
@@ -52,8 +59,8 @@
 #include <sys/fcntl.h>
 #include <time.h>
 #include <string.h>
-
-#include "xively_settings.h"
+#include <unistd.h>
+#include <math.h>
 
 
 /*#### DEFINITIONS ##########################################################*/
@@ -62,24 +69,37 @@
 #define DEBUG 0
 
 /* Port where JeeNode is connected */
+#define PORT "/dev/ttyUSB0"
 /*#define PORT "/dev/ttyUSB1" */
-#define PORT "/dev/jeenode1"
+/*#define PORT "/dev/jeenode1" */
 
 /* Location of logfiles */
-#define ALL_LOG "/var/jnread_jos/jnread_jos.log"
-#define ACTUAL_LOG "/var/jnread_jos/jnread_actual.log"
-#define MIDNIGHT_LOG "/var/jnread_jos/jnread_midnight.log"
+#define ALL_LOG "/opt/jnread/log/jnread_jos.log"
+#define ACTUAL_LOG "/opt/jnread/log/jnread_actual.log"
+#define MIDNIGHT_LOG "/opt/jnread/log/jnread_midnight.log"
 
 /* Location to RRD solar database */
-#define RRD_DB "/var/jnread_jos/rrd/solar_power.rrd"
+#define RRD_DB "/opt/jnread/rrd/solar_power.rrd"
 
 /* Location to write the html output */
-#define ACTUALHTML "/var/www/html/jnread_jos/index.html"
+#define ACTUALHTML "/opt/jnread/www/index.html"
 /* Temporary output file for html creation */
-#define TMPHTML "/var/www/html/jnread_jos/tmphtml.new"
+#define TMPHTML "/opt/jnread/www/tmphtml.new"
 
 /* C factor for electricity meter (no. of rotations/kWh) */
 #define CFACTOR 600
+
+/* Settings for updating counters on the Domoticz server */
+#define DOMOTICZ_SERVER "ha01:8080"
+#define E_IDX_counter "99"
+#define E_IDX_actual "96"
+#define S_IDX "98"
+#define G_IDX "100"
+#define W_IDX "101"
+#define I_IDX "94"
+#define O_IDX "93"
+#define P_IDX "95"
+#define A_IDX "102"
 
 
 /*#### FUNCTIONS ############################################################*/
@@ -95,7 +115,7 @@
 *  5=Gas usage today (in L !! (=*1000))
 *  6=rotationcount water
 *  7=rotation start count water
-*  8=Water usage today (in L !! (=*1000))
+*  8=Water usage today (in L)
 *  9=Solar runtime today (in minutes)
 * 10=Solar electricity production today (in Wh !! (=*1000))
 */
@@ -111,7 +131,7 @@ int read_actual(char filename[])
     return(1);
   }
   for (i=0; i<11; i++) {
-    fscanf(rfp, "%d", &actual[i]);
+    fscanf(rfp, "%ld", &actual[i]);
   }
   fclose(rfp);
 }
@@ -127,7 +147,7 @@ int write_actual(char filename[])
     return(1);
   }
   for (i=0; i<11; i++) {
-    fprintf(wfp, "%d ", actual[i]);
+    fprintf(wfp, "%ld ", actual[i]);
   }
   fprintf(wfp, "\n");
   fclose(wfp);
@@ -221,7 +241,7 @@ void set_time_vars() {
   //strftime(today, sizeof(date_time_str), "%d-%m-%Y", l_date_time);
   /*  Time/date var for logging purposes */
   strcpy(prevlogdatetime,logdatetime);
-  strftime(logdatetime, sizeof(date_time_str), "%d-%m-%y %H:%M:%S", l_date_time);
+  strftime(logdatetime, sizeof(date_time_str), "%d-%m-%y,%H:%M:%S", l_date_time);
   /*  Time/date var for html page */
   strftime(htmldatetime, sizeof(date_time_str), "%a %b %d %H:%M:%S %Z %Y", l_date_time);
 }
@@ -266,8 +286,8 @@ int opressure=0;
 
 void create_html_page() {
   #if DEBUG
-  printf("watt %d, e_today %d, g_today %d, itemp %d, otemp %d opres %d, swatt %d, s_today %d, s_runtime %d\n",
-  watt,    e_today,    g_today,itemperature,otemperature,opressure, swatt,    s_today,    s_runtime);
+  printf("watt %d, e_today %d, g_today %d,  w_today %d, itemp %d, otemp %d opres %d, swatt %d, s_today %d, s_runtime %d\n",
+  watt,    e_today,    g_today,i    w_today, itemperature,otemperature,opressure,swatt,s_today,    s_runtime);
   #endif
   /* Create HTML page */
   sprintf(htmlstring, "<HTML><HEAD><TITLE>JJ Home data</TITLE><META HTTP-EQUIV=\"refresh\" CONTENT=\"30\"><LINK REL=\"shortcut icon\" HREF=\"favicon.ico\"></HEAD>");
@@ -291,6 +311,8 @@ void create_html_page() {
   sprintf(htmlstring, "<TR><TD>Running time today (hh:mm)</TD><TD><FONT SIZE=4>%02u:%02u</FONT></TD></TR>", s_runtime/60, s_runtime%60);
   append_to_file(thtml, htmlstring);
   sprintf(htmlstring, "<TR><TD><CENTER><IMG BORDER=0 SRC=\"pictures/gas-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Gas usage today (m&sup3;)</TD><TD><FONT SIZE=4>%6.3f m&sup3;</FONT></TD></TR>", (float)g_today/1000);
+  append_to_file(thtml, htmlstring);
+  sprintf(htmlstring, "<TR><TD><CENTER><IMG BORDER=0 SRC=\"pictures/water-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Water usage today (L)</TD><TD><FONT SIZE=4>%d L</FONT></TD></TR>", w_today);
   append_to_file(thtml, htmlstring);
   sprintf(htmlstring, "<TR><TD><CENTER><IMG BORDER=0 SRC=\"pictures/temp_inside-button.png\" WIDTH=90 HEIGHT=50></CENTER></TD><TD>Inside temperature</TD><TD><FONT SIZE=4>%2.1f &deg;C</FONT></TD></TR>", (float)itemperature/10);
   append_to_file(thtml, htmlstring);
@@ -317,7 +339,7 @@ void create_html_page() {
 /* Initialise some variables */
 int prev_hours=0;
 
-main(int argc, char *argv[])
+int main(int argc, char *argv[])
 {
   char *prog = argv[0]; 	// program name for errors
   char log[]=ALL_LOG;		// The logfile
@@ -326,7 +348,7 @@ main(int argc, char *argv[])
   char alog[]=ACTUAL_LOG;	// File with the last actual values
   char usb_line[128];		// line read from usb port
   char rrd_db[]=RRD_DB; 	// RRD database file
-  char systemstr[120];          // line to be executed by OS
+  char systemstr[255];          // line to be executed by OS
   int gbytes;			// bytes read from usb port
   char type; int item2; long item3; long item4; // items in USB message
   int i;			// counter
@@ -344,13 +366,14 @@ main(int argc, char *argv[])
   set_time_vars();
 
   /*  read line from port and process only lines that start with:
+  *     a: for appliance data
   * 	e: for electricity data
   * 	g: for gas data
   * 	i: for inside temperature data
   * 	o: for outside temperature data
   * 	p: for outside pressure data
   * 	s: for solar production data
-  * 	w: for water data (not yet)
+  * 	w: for water data
   */
   open_usb(PORT);
   while (1) {
@@ -364,8 +387,17 @@ main(int argc, char *argv[])
       sprintf(logstring, "%s %s", logdatetime, usb_line);
       append_to_file(log, logstring);
       /* process the line */
-      sscanf(usb_line, "%c %d %d %d", &type, &item2, &item3, &item4);
+      sscanf(usb_line, "%c %d %ld %ld", &type, &item2, &item3, &item4);
       switch (type) {
+      case 'a':
+        #if DEBUG
+        printf("type %c, watt %d\n", type, item2);
+        #endif
+        sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d\"", DOMOTICZ_SERVER, A_IDX, item2);
+        system(systemstr);
+        //sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d\"", N_DOMOTICZ_SERVER, N_A_IDX, item2);
+        //system(systemstr);
+        break;
       case 'e':
         watt=item2;
         e_rotations=item3;
@@ -373,8 +405,15 @@ main(int argc, char *argv[])
         printf("type %c, watt %d, e_rotations %d\n", type, watt, e_rotations);
         #endif
         e_today = ((e_rotations-e_start_rotations)*1000)/CFACTOR;
-        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Electricity", watt);
+        sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d\"", DOMOTICZ_SERVER, E_IDX_actual, watt);
         system(systemstr);
+        //sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d;%d\"", N_DOMOTICZ_SERVER, N_E_IDX_actual, watt);
+        //system(systemstr);
+        // The "(e_rotations*1000)/600" in the line below is needed to be able to set the "Energy counter divider" in Domoticz on 1000 (and not 600)
+        sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d\"", DOMOTICZ_SERVER, E_IDX_counter, (e_rotations*1000)/600);
+        system(systemstr);
+        //sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d;%d\"", N_DOMOTICZ_SERVER, N_E_IDX_counter, (e_rotations*1000)/600);
+        //system(systemstr);
         break;
       case 'g':
         g_rotations=item3;
@@ -382,35 +421,53 @@ main(int argc, char *argv[])
         printf("type %c, g_rotations %d\n", type, g_rotations);
         #endif
         g_today = (g_rotations-g_start_rotations)*10;
-        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Gas", 10);
+        sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d\"", DOMOTICZ_SERVER, G_IDX, g_rotations);
         system(systemstr);
-        sleep(1);
-        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "Gas", 0);
+        //sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d\"", N_DOMOTICZ_SERVER, N_G_IDX, g_rotations);
+        //system(systemstr);
+        //sleep(1);
+        break;
+      case 'w':
+        w_rotations=item3;
+        #if DEBUG
+        printf("type %c, w_rotations %d\n", type, w_rotations);
+        #endif
+        w_today = (w_rotations-w_start_rotations)*1;
+        sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d\"", DOMOTICZ_SERVER, W_IDX, w_rotations);
         system(systemstr);
+        //sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d\"", N_DOMOTICZ_SERVER, N_W_IDX, w_rotations);
+        //system(systemstr);
+        //sleep(1);
         break;
       case 'i':
         itemperature=item2;
         #if DEBUG
         printf("type %c, itemperature %d\n", type, itemperature);
         #endif
-        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %2.1f", APIKEY, FEEDID, "Inside", (float)itemperature/10);
+        sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%2.1f\"", DOMOTICZ_SERVER, I_IDX, (float)itemperature/10.0f);
         system(systemstr);
+        //sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%2.1f\"", N_DOMOTICZ_SERVER, N_I_IDX, (float)itemperature/10.0f);
+        //system(systemstr);
         break;
       case 'o':
         otemperature=item2;
         #if DEBUG
         printf("type %c, otemperature %d\n", type, otemperature);
         #endif
-        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %2.1f", APIKEY, FEEDID, "Outside", (float)otemperature/10);
+        sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%2.1f\"", DOMOTICZ_SERVER, O_IDX, (float)otemperature/10.0f);
         system(systemstr);
+        //sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%2.1f\"", N_DOMOTICZ_SERVER, N_O_IDX, (float)otemperature/10.0f);
+        //system(systemstr);
         break;
       case 'p':
         opressure=item2;
         #if DEBUG
         printf("type %c, opressure %d\n", type, opressure);
         #endif
-        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_updatef %s %s %s %4.1f", APIKEY, FEEDID, "Pressure", (float)opressure/10);
+        sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%4.1f;5\"", DOMOTICZ_SERVER, P_IDX, (float)opressure/10.0f);
         system(systemstr);
+        //sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%4.1f;5\"", N_DOMOTICZ_SERVER, N_P_IDX, (float)opressure/10.0f);
+        //system(systemstr);
         break;
       case 's':
         swatt=item2;
@@ -421,21 +478,22 @@ main(int argc, char *argv[])
         #endif
         sprintf(systemstr, "rrdtool update %s N:%d", rrd_db, swatt);
         system(systemstr);
-        sprintf(systemstr, "/opt/jnread_jos/xi_datastream_update %s %s %s %d", APIKEY, FEEDID, "SolarOutput", swatt);
+        sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d;%d\"", DOMOTICZ_SERVER, S_IDX, swatt, s_today);
         system(systemstr);
+        //sprintf(systemstr, "curl -s -i -H \"Accept: application/json\" \"http://%s/json.htm?type=command&param=udevice&idx=%s&nvalue=0&svalue=%d;%d\"", N_DOMOTICZ_SERVER, N_S_IDX, swatt, s_today);
+        //system(systemstr);
         break;
-        //      case 'w':
-        //        break;
       }
       set_actual_array();
       write_actual(alog);
       
-      /*  Reset the daily counter e_today and g_today, because of a new day set
-      *  e_start_rotations, g_start_rotations and w_start_rotations(not yet) to the number of
+      /*  Reset the daily counter e_today, g_today and w_today, because of a new day,
+      *  set e_start_rotations, g_start_rotations and w_start_rotations to the number of
       *  rotations now, because of a new day
       */
       if ( (prev_hours == 23) && (hours == 00) ) {
-        sprintf(logstring, "%s %d %d 0 %d %d\n", prevlogdatetime, e_today, g_today, s_today, s_runtime);
+        // Data for daily log: Date, Time, Imported energy (Wh), Gas usage (L), Water usage (L), Solar production (Wh), Solar runtime (mins), Used energy (Wh)(=Imported energy+Solar production)
+        sprintf(logstring, "%s,%d,%d,%d,%d,%d,%d\n", prevlogdatetime, e_today, g_today, w_today, s_today, s_runtime, e_today+s_today);
         append_to_file(mlog, logstring);
         sprintf(logstring, "Midnight reset of the counters\n");
         append_to_file(log, logstring);
@@ -445,8 +503,8 @@ main(int argc, char *argv[])
         g_start_rotations = g_rotations;
         s_today = 0;
         s_runtime = 0;
-        /*w_today = 0;
-        w_start_rotations = w_rotations;*/
+        w_today = 0;
+        w_start_rotations = w_rotations;
 
       }
       prev_hours = hours;
