@@ -1,7 +1,12 @@
-CC=gcc -O
-jnread: jnread.o
+CC=gcc
+JNREADDIR=/opt/jnread
+jnread: jnread.o 
 
-jnread.o: jnread.c xively_settings.h
+jnread.o: jnread.c
+
+install: jnread
+	mkdir -p $(JNREADDIR)/bin
+	install -m 755 jnread $(JNREADDIR)/bin
 
 clean:
 	rm -f jnread jnread.o
